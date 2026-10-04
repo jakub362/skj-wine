@@ -60,6 +60,11 @@ if [ "${1:-}" = --setup ] || [ ! -f "$GGDIR/SteelSeriesGGEZ.exe" ]; then
   [ "${1:-}" = --setup ] && exit 0
 fi
 
+# remove broken Wine-category GG menu entries if they exist (made by older setups)
+if [ -d "$HOME/.local/share/applications/wine/Programs/SteelSeries" ] || ls "$HOME"/.config/menus/applications-merged/wine-Programs-SteelSeries*.menu >/dev/null 2>&1; then
+  "$ROOT/bin/skj-gg-icons" "$WINEPREFIX" >/dev/null 2>&1 &
+fi
+
 cd "$GGDIR" || exit 1
 if [ "${1:-}" = --auto ]; then
   running && exit 0

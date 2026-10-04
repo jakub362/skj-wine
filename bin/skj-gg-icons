@@ -23,11 +23,14 @@ if command -v wrestool >/dev/null && command -v icotool >/dev/null && [ -f "$EXE
 fi
 rm -rf "$TMP"
 
-# winemenubuilder leftovers
+# winemenubuilder leftovers (entries, KDE/XDG submenu and directory files)
+rm -f "$HOME"/.config/menus/applications-merged/wine-Programs-SteelSeries*.menu 2>/dev/null
+rm -f "$HOME"/.local/share/desktop-directories/wine-Programs-SteelSeries*.directory 2>/dev/null
 rm -rf "$HOME/.local/share/applications/wine/Programs/SteelSeries" 2>/dev/null
 grep -l -r -i "SteelSeries" "$HOME/.local/share/applications/wine" 2>/dev/null | while read -r f; do rm -f "$f"; done
 find "$HOME/.local/share/applications" -name 'wine-extension-*' -newer "$WINEPREFIX/system.reg" -delete 2>/dev/null || true
 
 command -v gtk-update-icon-cache >/dev/null && gtk-update-icon-cache -q -t "$ICONS" 2>/dev/null
 command -v update-desktop-database >/dev/null && update-desktop-database -q "$HOME/.local/share/applications" 2>/dev/null
+command -v kbuildsycoca6 >/dev/null && kbuildsycoca6 >/dev/null 2>&1
 exit 0
