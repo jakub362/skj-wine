@@ -9,6 +9,7 @@ set -euo pipefail
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
 ROOT="$(cd "$HERE/../.." && pwd)"
+[ -x "$ROOT/dist/bin/wine" ] && export PATH="$ROOT/dist/bin:$PATH"
 export WINEPREFIX="${1:-$HOME/.local/share/skj-wine/steelseries-gg}"
 export WINEDEBUG="${WINEDEBUG:--all}"
 CACHE="${XDG_CACHE_HOME:-$HOME/.cache}/skj-wine"

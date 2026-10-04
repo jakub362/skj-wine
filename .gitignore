@@ -1,1 +1,3 @@
 *.o
+dist/
+check-mouse-report.txt
