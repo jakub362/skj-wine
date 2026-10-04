@@ -43,7 +43,7 @@ Tested: GG 120.0.0, wine-staging 11.19 + SKJ patches 0001–0004, 2026-10-04. **
 - [x] Battery: shown as bars (fine)
 - [x] Illumination/RGB, polling rate (mouse reconnects on change, same as Windows), sleep timer: **work**
 - [x] Remap button → keyboard key: **works** (stored on the mouse)
-- [ ] Remap button → other mouse button (e.g. B4→B1): sends **both** B1 and B4. The engine injects B1 itself; on Windows sshid.sys suppresses the original B4. Needs input suppression in skjsshid (evdev grab + uinput helper)
+- [x] Remap button → other mouse button (B4→B1): **works once SAVED** (written to the mouse). Only GG's *live preview* sends both B1 and B4 — preview injects B1 and relies on sshid.sys to swallow B4 (not emulated; low priority)
 - [ ] Macros: not onboard, need skjsshid injection (same helper)
 - [x] Slow UI: Wine's D3D11→OpenGL path. Added `tools/install-dxvk.sh` (DXVK 3.1.1); GG itself doesn't disable HW acceleration (only if windowProps.json says so)
 - [x] `sshid.sys` reverse engineered and replaced by `drivers/skjsshid` (see its README)
