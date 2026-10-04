@@ -88,4 +88,12 @@ say "9/9 Removing the update-service proxy (needs real .NET Framework, not used 
 wine sc delete SteelSeriesGGUpdateServiceProxy >/dev/null 2>&1 || true
 wineserver -w
 
+# Wine's default "Enhance pointer precision" (MouseSpeed=1) makes GG show
+# "Your mouse settings are being affected by Windows Pointer Options".
+# Linux handles pointer acceleration itself, so turn it off inside the prefix.
+wine reg add 'HKCU\Control Panel\Mouse' /v MouseSpeed /t REG_SZ /d 0 /f >/dev/null 2>&1 || true
+wine reg add 'HKCU\Control Panel\Mouse' /v MouseThreshold1 /t REG_SZ /d 0 /f >/dev/null 2>&1 || true
+wine reg add 'HKCU\Control Panel\Mouse' /v MouseThreshold2 /t REG_SZ /d 0 /f >/dev/null 2>&1 || true
+wineserver -w
+
 say "Done. Start GG with: $HERE/run.sh"

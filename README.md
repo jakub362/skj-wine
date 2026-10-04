@@ -4,13 +4,13 @@ A Wine build that isn't for games. It's for the **Windows apps that come with yo
 
 Base: **wine-staging** + the patches in `patches/wine/`, plus per-app setup scripts that do what the Windows installers can't do under Wine.
 
-![SteelSeries GG running under SKJ Wine](apps/steelseries-gg/screenshots/03-engine.png)
+![SteelSeries GG controlling a real Aerox 3 Wireless under SKJ Wine on Fedora](apps/steelseries-gg/screenshots/04-aerox3-real.png)
 
 ## Status
 
 | App | State |
 |---|---|
-| SteelSeries GG | **Boots fully**: GGEZ, GG core, Engine, Prism, Moments, the GG window, and `skjsshid.sys` standing in for SteelSeries' kernel driver. Next: real-mouse test. See `apps/steelseries-gg/NOTES.md` |
+| SteelSeries GG | **Boots fully**: GGEZ, GG core, Engine, Prism, Moments, the GG window, and `skjsshid.sys` standing in for SteelSeries' kernel driver. **Works on real hardware**: Aerox 3 Wireless detected on Fedora 44, DPI changes apply. See `apps/steelseries-gg/NOTES.md` |
 | Corsair iCUE | Not started |
 
 ## Install on Fedora

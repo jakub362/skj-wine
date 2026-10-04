@@ -1,6 +1,6 @@
 # SteelSeries GG under SKJ Wine — findings
 
-Tested: GG 120.0.0, wine-staging 11.19 + SKJ patches 0001–0004, 2026-10-04.
+Tested: GG 120.0.0, wine-staging 11.19 + SKJ patches 0001–0004, 2026-10-04. **Confirmed on real hardware: Aerox 3 Wireless detected, DPI changes work (Fedora 44).**
 `setup.sh` + `run.sh` verified end to end on a fresh prefix (about 2 min to set up).
 
 ![GG Engine page under SKJ Wine](screenshots/03-engine.png)
@@ -38,7 +38,10 @@ Tested: GG 120.0.0, wine-staging 11.19 + SKJ patches 0001–0004, 2026-10-04.
 
 ## Next steps
 
-- [ ] **Real Aerox 3 on Fedora**: enable hidraw (`DisableHidraw=0` under `HKLM\System\CurrentControlSet\Services\winebus`) + udev rule for `1038:*`, check the Engine page lists the mouse.
+- [x] **Real Aerox 3 Wireless (2.4 GHz) on Fedora 44: WORKS.** GG detects it (Gear page, 2.4G connected) and **DPI changes apply to the mouse**. Only the udev rule was needed (Wine passes the vendor HID interface through by default). Screenshot: `screenshots/04-aerox3-real.png`
+- [x] GG's "Windows Pointer Options" banner: Wine defaults to MouseSpeed=1; setup.sh now sets it to 0
+- [ ] Battery % shows blank ("REMAINING") – check
+- [ ] Test RGB/illumination, polling rate, sleep timer, button remaps (remaps to keys/macros need skjsshid emulation)
 - [x] `sshid.sys` reverse engineered and replaced by `drivers/skjsshid` (see its README)
 - [ ] Optional: implement macro playback / remap / accel via evdev+uinput in skjsshid
 - [ ] Package SKJ Wine (patched wine-staging) for Fedora.
