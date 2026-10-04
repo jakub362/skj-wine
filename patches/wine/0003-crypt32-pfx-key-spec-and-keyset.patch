@@ -1,0 +1,50 @@
+From: SKJ Wine <skj-tech@hotmail.com>
+Subject: [PATCH] crypt32: Record the right key spec and keyset in PFXImportCertStore.
+
+set_key_prov_info() filled CRYPT_KEY_PROV_INFO.dwKeySpec from PP_KEYSPEC,
+which returns the key specs the CSP *supports* (AT_KEYEXCHANGE|AT_SIGNATURE)
+rather than the spec of the imported key, and always cleared dwFlags even for
+CRYPT_MACHINE_KEYSET imports. Anything that later opens the key from the
+certificate (e.g. .NET's X509Certificate2.GetRSAPrivateKey) then failed with
+NTE_BAD_KEYSET or NTE_NO_KEY. Seen with SteelSeries GG (GGEZ).
+---
+diff --git a/dlls/crypt32/pfx.c b/dlls/crypt32/pfx.c
+index 81f0fae..e1cc64a 100644
+--- a/dlls/crypt32/pfx.c
++++ b/dlls/crypt32/pfx.c
+@@ -101,7 +101,7 @@ static WCHAR *get_provider_property( HCRYPTPROV prov, DWORD prop_id, DWORD *len
+     return ret;
+ }
+ 
+-static BOOL set_key_prov_info( const void *ctx, HCRYPTPROV prov )
++static BOOL set_key_prov_info( const void *ctx, HCRYPTPROV prov, DWORD flags )
+ {
+     CRYPT_KEY_PROV_INFO *prov_info;
+     DWORD size, len_container, len_name;
+@@ -132,11 +132,14 @@ static BOOL set_key_prov_info( const void *ctx, HCRYPTPROV prov )
+     size = sizeof(prov_info->dwProvType);
+     CryptGetProvParam( prov, PP_PROVTYPE, (BYTE *)&prov_info->dwProvType, &size, 0 );
+ 
+-    prov_info->dwFlags     = 0;
++    /* the key lives in the machine keyset if it was imported there */
++    prov_info->dwFlags     = flags & CRYPT_MACHINE_KEYSET;
+     prov_info->cProvParam  = 0;
+     prov_info->rgProvParam = NULL;
+-    size = sizeof(prov_info->dwKeySpec);
+-    CryptGetProvParam( prov, PP_KEYSPEC, (BYTE *)&prov_info->dwKeySpec, &size, 0 );
++    /* PP_KEYSPEC returns the key specs the CSP supports (a bitmask), not the
++     * spec of the imported key. import_key() imports an exchange key pair,
++     * the same spec set_key_context() records. */
++    prov_info->dwKeySpec   = AT_KEYEXCHANGE;
+ 
+     ret = CertSetCertificateContextProperty( ctx, CERT_KEY_PROV_INFO_PROP_ID, 0, prov_info );
+ 
+@@ -211,7 +214,7 @@ HCERTSTORE WINAPI PFXImportCertStore( CRYPT_DATA_BLOB *pfx, const WCHAR *passwor
+                     goto error;
+                 }
+             }
+-            else if (!set_key_prov_info( ctx, prov ))
++            else if (!set_key_prov_info( ctx, prov, flags ))
+             {
+                 WARN( "failed to set provider info property %08lx\n", GetLastError() );
+                 CertFreeCertificateContext( ctx );

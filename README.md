@@ -4,11 +4,13 @@ A Wine build that isn't for games. It's for the **Windows apps that come with yo
 
 Base: **wine-staging** + the patches in `patches/wine/`, plus per-app setup scripts that do what the Windows installers can't do under Wine.
 
+![SteelSeries GG running under SKJ Wine](apps/steelseries-gg/screenshots/03-engine.png)
+
 ## Status
 
 | App | State |
 |---|---|
-| SteelSeries GG | Backend boots (GGEZ server, GG core, Moments). Device engine + UI next. See `apps/steelseries-gg/NOTES.md` |
+| SteelSeries GG | **Boots fully**: GGEZ, GG core, Engine, Prism, Moments and the GG window. Next: real-mouse test. See `apps/steelseries-gg/NOTES.md` |
 | Corsair iCUE | Not started |
 
 ## Layout
@@ -16,6 +18,7 @@ Base: **wine-staging** + the patches in `patches/wine/`, plus per-app setup scri
 ```
 patches/wine/          Wine patches (each one fixes a real bug, upstreamable)
 tools/certinstall/     certinstall.exe – imports a PFX into a Windows cert store (replaces PowerShell)
+tools/chaintest/       chaintest.exe – prints Wine's certificate chain trust status (debugging)
 apps/<app>/setup.sh    builds a prefix for that app
 apps/<app>/run.sh      starts it
 apps/<app>/NOTES.md    what we found

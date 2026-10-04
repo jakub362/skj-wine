@@ -1,35 +1,42 @@
 # SteelSeries GG under SKJ Wine — findings
 
-Tested: GG 120.0.0, wine-staging 11.19 + SKJ patches, 2026-10-04.
+Tested: GG 120.0.0, wine-staging 11.19 + SKJ patches 0001–0004, 2026-10-04.
+`setup.sh` + `run.sh` verified end to end on a fresh prefix (about 2 min to set up).
 
-## How GG is built
+![GG Engine page under SKJ Wine](screenshots/03-engine.png)
 
-| Piece | What it is | Status under SKJ Wine |
+## Status
+
+| Piece | What it is | Status |
 |---|---|---|
-| `SteelSeriesGGEZ.exe` | .NET 8 ASP.NET Core server on `https://127.0.0.1:6327`, starts the sub-apps | **Runs** (needs patches 0001 + 0002) |
-| `SteelSeriesGG.exe` ("oldGG") | Go, the GG core, registers with GGEZ over HTTPS IPC | **Runs**, registers + reports ready |
-| `SteelSeriesMoments.exe` | Go, clip recorder | **Runs**, talks to GGEZ |
-| `apps/engine/SteelSeriesEngine.exe` | Go, device layer (mice/keyboards). `SSEdevice.dll` uses plain `hid.dll` + `setupapi` | Starts standalone. Not yet launched by oldGG — next step |
-| `SteelSeriesGGClient.exe` | Chromium/CEF UI | Not tested yet |
-| `updateService/SteelSeriesGGUpdateServiceProxy.exe` | .NET Framework Windows service, launches the Go update service | Crashes on wine-mono (Serilog needs `EventLogInvalidDataException`). Not needed: we start GGEZ directly |
-| `sshid.sys`, `ssdevfactory.sys`, … | KMDF kernel drivers (`WDFLDR.SYS`) | Can't load — Wine has no KMDF. `sshid.sys` is a HID *filter* listing the Aerox 3 PIDs (1838, 183A, 1852…). Need to check what breaks without it |
+| `SteelSeriesGGEZ.exe` | .NET 8 ASP.NET Core server on `https://127.0.0.1:6327`, starts everything else | **Runs**, TLS with the real installed cert |
+| `SteelSeriesGG.exe --hosted` ("oldGG") | Go, GG core | **Runs**, websocket to GGEZ connected |
+| `apps/engine/SteelSeriesEngine.exe` | Go, device layer (`SSEdevice.dll` → `hid.dll` + `setupapi`) | **Runs**, serves `/devices`, `/quickset/items`, `/sock` |
+| `apps/engine/prism/SteelSeriesPrism.exe` | RGB / lighting | **Runs** |
+| `SteelSeriesMoments.exe` | Go, clip recorder | **Runs** |
+| `SteelSeriesGGClient.exe` | Electron UI | **Runs**: login → skip → main app → Engine page. The login screen's left hero video stays blank (artwork on other screens is fine) |
+| Update service proxy | .NET Framework Windows service | Not used (crashes on wine-mono; GGEZ is started directly) |
+| `sshid.sys`, `ssdevfactory.sys`, … | KMDF kernel drivers | Can't load (no KMDF in Wine). `sshid.sys` is a HID filter listing Aerox 3 PIDs. **Unknown if the Engine needs it — needs a real-mouse test** |
 
 ## Problems found and fixes
 
-1. **Installer can't run PowerShell** → `GenerateSelfSignedCertificate.ps1` fails, no TLS cert, empty `GGCertificateThumbprint`.
-   Fix: `setup.sh` makes the same cert with openssl and imports it with `tools/certinstall`.
-2. **`dbconf.yml` missing** in `GG\db` and `GG\apps\engine\db` → GG and Engine panic at start.
-   Fix: copied from `ProgramData` by `setup.sh`.
-3. **Wine bug: `CryptAcquireCertificatePrivateKey` ignores `CRYPT_ACQUIRE_ONLY_NCRYPT_KEY_FLAG`** → .NET treats a CAPI handle as an NCrypt handle → AccessViolation in `NCryptGetProperty`.
-   Fix: `patches/wine/0001`.
-4. **Wine bug: `ApplicationData.Current` succeeds for unpackaged apps** (Windows throws "no package identity") → `Microsoft.Data.Sqlite` crashes in its static constructor.
-   Fix: `patches/wine/0002`.
-5. **Cert private key not usable through CAPI** (`NTE_NO_KEY` 0x8009000d) → GGEZ logs an error and falls back to a temporary cert. Works, but should be fixed (rsaenh key spec after PFX import).
+1. **Installer can't run PowerShell** → no localhost TLS cert. `setup.sh` makes it with openssl, `tools/certinstall` imports it.
+2. **`dbconf.yml` missing** in `GG\db` and `GG\apps\engine\db` → GG/Engine panic. Copied by `setup.sh`.
+3. **Wine: `CryptAcquireCertificatePrivateKey` ignored `CRYPT_ACQUIRE_ONLY_NCRYPT_KEY_FLAG`** → .NET AccessViolation. `patches/wine/0001`.
+4. **Wine: `ApplicationData.Current` succeeded for desktop apps** → `Microsoft.Data.Sqlite` crash. `patches/wine/0002`.
+5. **Wine: `PFXImportCertStore` stored the wrong key spec (PP_KEYSPEC bitmask) and dropped `CRYPT_MACHINE_KEYSET`** → NTE_BAD_KEYSET / NTE_NO_KEY when opening the cert's key. `patches/wine/0003`.
+6. **Wine: Schannel only looked for key containers in HKCU** → TLS server with a LocalMachine cert dropped every connection. `patches/wine/0004`.
+7. **GGEZ didn't know about the Engine.** GGEZ starts sub-apps from its own `ggez.db`; the installer's table migration that should copy `engine`/`sonar`/`threeDAT` from `database.db` doesn't run under Wine. `setup.sh` copies the rows.
+8. **`shared/guid.json` missing** → written by `setup.sh`.
+
+## Known leftovers
+
+- Some `tls: unknown certificate` lines from Engine/Moments while the UI starts. The requests then succeed (UI loads devices). Probably the UI connecting before it has received the sub-app's cert. Low priority.
+- Login screen hero video doesn't play (likely a codec Wine/Electron lacks here).
+- `chaintest.exe` (tools/) confirmed Wine's chain engine reports only `CERT_TRUST_IS_UNTRUSTED_ROOT` for GG's self-signed certs, which is what GGEZ expects.
 
 ## Next steps
 
-- [ ] Get oldGG to launch `SteelSeriesEngine.exe` (check `database.db` sub-apps / what oldGG waits for).
-- [ ] Start `SteelSeriesGGClient.exe` (UI) and see if CEF renders.
-- [ ] Test with a real Aerox 3 on Fedora: hidraw passthrough (`DisableHidraw=0` + udev rule for 1038:*), see if Engine finds it without `sshid.sys`.
-- [ ] Fix item 5.
-- [ ] Turn the patch set into a proper SKJ Wine build (Fedora RPM / tarball).
+- [ ] **Real Aerox 3 on Fedora**: enable hidraw (`DisableHidraw=0` under `HKLM\System\CurrentControlSet\Services\winebus`) + udev rule for `1038:*`, check the Engine page lists the mouse.
+- [ ] If the Engine needs `sshid.sys`: find what it calls on it (DeviceIoControl codes) and emulate in a Wine-side driver.
+- [ ] Package SKJ Wine (patched wine-staging) for Fedora.

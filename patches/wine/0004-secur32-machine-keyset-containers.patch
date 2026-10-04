@@ -1,0 +1,22 @@
+From: SKJ Wine <skj-tech@hotmail.com>
+Subject: [PATCH] secur32: Look for machine keyset containers in HKLM.
+
+get_key_blob() only opened the rsaenh key container under HKEY_CURRENT_USER.
+rsaenh stores CRYPT_MACHINE_KEYSET containers under HKEY_LOCAL_MACHINE, so a
+TLS server using a certificate from LocalMachine\My (the normal place for a
+service's certificate) failed AcquireCredentialsHandle and dropped every
+connection. Seen with SteelSeries GG (GGEZ server on 127.0.0.1:6327).
+---
+diff --git a/dlls/secur32/schannel.c b/dlls/secur32/schannel.c
+index 1e149d7..3bdea29 100644
+--- a/dlls/secur32/schannel.c
++++ b/dlls/secur32/schannel.c
+@@ -603,6 +603,8 @@ static BYTE *get_key_blob(const CERT_CONTEXT *ctx, DWORD *size)
+ 
+     if (!(path = get_key_container_path(ctx))) return NULL;
+     retval = RegOpenKeyExW(HKEY_CURRENT_USER, path, 0, KEY_READ, &hkey);
++    /* rsaenh keeps CRYPT_MACHINE_KEYSET containers under HKLM */
++    if (retval) retval = RegOpenKeyExW(HKEY_LOCAL_MACHINE, path, 0, KEY_READ, &hkey);
+     free(path);
+     if (retval)
+         return NULL;
