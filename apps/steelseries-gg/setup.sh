@@ -20,8 +20,10 @@ mkdir -p "$CACHE"
 say() { printf '\033[1;36m[skj-wine]\033[0m %s\n' "$*"; }
 
 say "1/9 Creating prefix at $WINEPREFIX"
-WINEDLLOVERRIDES="mscoree,mshtml=" wineboot -i >/dev/null 2>&1 || true
+mkdir -p "$(dirname "$WINEPREFIX")"   # Wine only creates the last path component
+WINEDLLOVERRIDES="mscoree,mshtml=" wineboot -i >"$CACHE/wineboot.log" 2>&1 || true
 wineserver -w
+[ -d "$WINEPREFIX/drive_c/windows" ] || { echo "Creating the Wine prefix failed, see $CACHE/wineboot.log"; tail -20 "$CACHE/wineboot.log"; exit 1; }
 
 say "2/9 Installing wine-mono $MONO_VER (needed by GG's .NET Framework helpers)"
 MONO="$CACHE/wine-mono-$MONO_VER-x86.msi"
