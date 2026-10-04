@@ -1,0 +1,73 @@
+#!/usr/bin/env bash
+# skj-gg - start SteelSeries GG under SKJ Wine, like the Windows shortcut does.
+#
+#   skj-gg              open GG (first run: sets everything up)
+#   skj-gg --auto       start in the background, like Windows autostart (used at login)
+#   skj-gg --stop       quit GG and its Wine processes
+#   skj-gg --setup      (re)run the GG setup into the prefix
+#   skj-gg --autostart on|off   start GG when you log in
+#   skj-gg --remove-data        delete the GG prefix (settings, logs) - asks first
+set -uo pipefail
+
+# where SKJ Wine lives: /opt/skj-wine (RPM) or the folder this script is in (../)
+SELF="$(readlink -f "$0")"
+ROOT="$(cd "$(dirname "$SELF")/.." && pwd)"
+[ -x "$ROOT/dist/bin/wine" ] || { [ -x /opt/skj-wine/dist/bin/wine ] && ROOT=/opt/skj-wine; }
+export PATH="$ROOT/dist/bin:$PATH"
+export WINEPREFIX="${SKJ_GG_PREFIX:-$HOME/.local/share/skj-wine/steelseries-gg}"
+export WINEDEBUG="${WINEDEBUG:--all}"
+export WINEDLLOVERRIDES="winemenubuilder.exe=d${WINEDLLOVERRIDES:+;$WINEDLLOVERRIDES}"
+LOGDIR="${XDG_CACHE_HOME:-$HOME/.cache}/skj-wine"; mkdir -p "$LOGDIR"
+GGDIR="$WINEPREFIX/drive_c/Program Files/SteelSeries/GG"
+AUTOSTART="$HOME/.config/autostart/skj-steelseries-gg.desktop"
+GG_ARGS=(-dataPath='C:\ProgramData\SteelSeries\GG' -dbEnv=production)
+
+notify() { command -v notify-send >/dev/null && notify-send -a "SKJ Wine" -i input-mouse "SteelSeries GG" "$1" || true; echo "[skj-gg] $1"; }
+running() { pgrep -f 'SteelSeriesGGEZ\.exe' >/dev/null; }
+
+[ -x "$ROOT/dist/bin/wine" ] || { notify "SKJ Wine isn't installed correctly (no $ROOT/dist). Reinstall it."; exit 1; }
+
+case "${1:-}" in
+  --stop)
+    wineserver -k 2>/dev/null; exit 0 ;;
+  --autostart)
+    if [ "${2:-}" = off ]; then rm -f "$AUTOSTART"; echo "Autostart off"; exit 0; fi
+    mkdir -p "$(dirname "$AUTOSTART")"
+    cat > "$AUTOSTART" <<EOF
+[Desktop Entry]
+Type=Application
+Name=SteelSeries GG (SKJ Wine)
+Exec=$SELF --auto
+Icon=skj-steelseries-gg
+X-GNOME-Autostart-enabled=true
+X-KDE-autostart-after=panel
+EOF
+    echo "Autostart on"; exit 0 ;;
+  --remove-data)
+    read -r -p "Delete $WINEPREFIX (all GG settings in SKJ Wine)? [y/N] " a
+    [ "$a" = y ] || exit 1
+    wineserver -k 2>/dev/null; rm -rf "$WINEPREFIX"; rm -f "$AUTOSTART"; echo "Removed."; exit 0 ;;
+esac
+
+# first run (or --setup): build the prefix
+if [ "${1:-}" = --setup ] || [ ! -f "$GGDIR/SteelSeriesGGEZ.exe" ]; then
+  notify "Setting up SteelSeries GG (first run, a few minutes)…"
+  if ! "$ROOT/apps/steelseries-gg/setup.sh" "$WINEPREFIX" >"$LOGDIR/setup.log" 2>&1; then
+    notify "Setup failed - see $LOGDIR/setup.log"; exit 1
+  fi
+  "$ROOT/bin/skj-gg-icons" "$WINEPREFIX" >/dev/null 2>&1 || true
+  notify "SteelSeries GG is ready."
+  [ "${1:-}" = --setup ] && exit 0
+fi
+
+cd "$GGDIR" || exit 1
+if [ "${1:-}" = --auto ]; then
+  running && exit 0
+  exec wine SteelSeriesGGEZ.exe "${GG_ARGS[@]}" -auto=true >"$LOGDIR/gg.log" 2>&1
+fi
+
+if running; then
+  # GG is already running in the background: open its window (single-instance UI)
+  exec wine SteelSeriesGGClient.exe 'C:\ProgramData\SteelSeries\GG\coreProps.json' >>"$LOGDIR/gg.log" 2>&1
+fi
+exec wine SteelSeriesGGEZ.exe "${GG_ARGS[@]}" >"$LOGDIR/gg.log" 2>&1

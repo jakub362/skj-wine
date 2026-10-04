@@ -33,7 +33,7 @@ wine msiexec /i "$(winepath -w "$MONO")" /qn >/dev/null 2>&1 || true
 say "3/9 Downloading and installing SteelSeries GG (silent)"
 GG="$CACHE/SteelSeriesGGSetup.exe"
 [ -f "$GG" ] || curl -fL -o "$GG" "$GG_URL"
-wine "$GG" /S >/dev/null 2>&1 || true
+WINEDLLOVERRIDES="winemenubuilder.exe=d" wine "$GG" /S >/dev/null 2>&1 || true
 wineserver -w
 
 GGDIR="$WINEPREFIX/drive_c/Program Files/SteelSeries/GG"

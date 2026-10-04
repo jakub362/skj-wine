@@ -1,0 +1,33 @@
+#!/usr/bin/env bash
+# Extract SteelSeries GG's icon from the installed app into the user's icon theme,
+# and remove the broken menu entries Wine's winemenubuilder made during GG's install
+# (they point at the system Wine without SKJ Wine's fixes).
+set -uo pipefail
+WINEPREFIX="${1:-$HOME/.local/share/skj-wine/steelseries-gg}"
+EXE="$WINEPREFIX/drive_c/Program Files/SteelSeries/GG/SteelSeriesGGClient.exe"
+ICONS="$HOME/.local/share/icons/hicolor"
+TMP=$(mktemp -d)
+
+if command -v wrestool >/dev/null && command -v icotool >/dev/null && [ -f "$EXE" ]; then
+  wrestool -x -t 14 "$EXE" -o "$TMP" 2>/dev/null
+  ico=$(ls -S "$TMP"/*.ico 2>/dev/null | head -1)
+  if [ -n "$ico" ]; then
+    icotool -x -o "$TMP" "$ico" 2>/dev/null
+    for png in "$TMP"/*.png; do
+      size=$(icotool -l "$ico" 2>/dev/null >/dev/null; file "$png" | grep -o -E '[0-9]+ x [0-9]+' | head -1 | cut -d' ' -f1)
+      [ -n "$size" ] || continue
+      mkdir -p "$ICONS/${size}x${size}/apps"
+      cp "$png" "$ICONS/${size}x${size}/apps/skj-steelseries-gg.png"
+    done
+  fi
+fi
+rm -rf "$TMP"
+
+# winemenubuilder leftovers
+rm -rf "$HOME/.local/share/applications/wine/Programs/SteelSeries" 2>/dev/null
+grep -l -r -i "SteelSeries" "$HOME/.local/share/applications/wine" 2>/dev/null | while read -r f; do rm -f "$f"; done
+find "$HOME/.local/share/applications" -name 'wine-extension-*' -newer "$WINEPREFIX/system.reg" -delete 2>/dev/null || true
+
+command -v gtk-update-icon-cache >/dev/null && gtk-update-icon-cache -q -t "$ICONS" 2>/dev/null
+command -v update-desktop-database >/dev/null && update-desktop-database -q "$HOME/.local/share/applications" 2>/dev/null
+exit 0

@@ -15,11 +15,25 @@ Base: **wine-staging** + the patches in `patches/wine/`, plus per-app setup scri
 
 ## Install on Fedora
 
+**As an RPM (recommended):**
+
 ```bash
-cd skj-wine && ./install-fedora.sh
+cd skj-wine && ./build-rpm.sh --install
 ```
 
-Installs wine-staging 11.19 from WineHQ, makes a private copy in `dist/` with the SKJ-patched DLLs on top (`lib/wine/x86_64-windows/`, built from `patches/wine/` against wine-11.19), adds a udev rule so Wine can open SteelSeries HID devices, and sets up GG. Your normal Wine is not touched.
+Builds `skj-wine-*.rpm` and installs it: SKJ Wine goes to `/opt/skj-wine`, **SteelSeries GG appears in your app menu**, `skj-gg` works in a terminal, GG starts at login (`skj-gg --autostart off` to stop that). The first launch sets GG up (a few minutes). Needs WineHQ's wine-staging 11.19 (the script adds the WineHQ repo); SKJ Wine keeps its own private copy, so your normal Wine is untouched. Remove with `sudo dnf remove skj-wine` (GG settings stay in `~/.local/share/skj-wine` until `skj-gg --remove-data`).
+
+**From the folder (no RPM):** `./install-fedora.sh && ./install-local.sh`
+
+## Using it
+
+```
+skj-gg                     open GG
+skj-gg --stop              quit GG
+skj-gg --autostart on|off  start GG at login
+skj-gg --setup             redo GG's setup
+skj-gg --remove-data       delete GG's settings/prefix
+```
 
 ## Layout
 
@@ -30,7 +44,10 @@ tools/chaintest/       chaintest.exe – prints Wine's certificate chain trust s
 tools/sstest/          sstest.exe – exercises \\.\SSengine like GG does
 drivers/skjsshid/      skjsshid.sys – WDM replacement for SteelSeries' KMDF sshid.sys
 lib/wine/               prebuilt patched DLLs (wine-11.19, x86_64)
-install-fedora.sh      one-shot Fedora installer
+install-fedora.sh      one-shot Fedora installer (folder install)
+install-local.sh       app menu + autostart for the folder install
+build-rpm.sh           build/install the Fedora RPM (packaging/skj-wine.spec)
+bin/skj-gg             GG launcher (first-run setup, single instance, autostart)
 apps/<app>/setup.sh    builds a prefix for that app
 apps/<app>/check-mouse.sh  (GG) report whether devices are visible
 apps/<app>/run.sh      starts it
