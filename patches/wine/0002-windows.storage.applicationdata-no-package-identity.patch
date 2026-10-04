@@ -1,0 +1,42 @@
+From: SKJ Wine <skj-tech@hotmail.com>
+Subject: [PATCH] windows.storage.applicationdata: Fail ApplicationData.Current for unpackaged processes.
+
+On Windows, ApplicationData.Current throws "The process has no package
+identity" (APPMODEL_ERROR_NO_PACKAGE) for normal desktop apps. Wine
+returned a semi-stub object instead, whose LocalFolder then fails with
+E_NOTIMPL. Microsoft.Data.Sqlite only guards the get_Current call, so every
+.NET app using SQLite with the Windows SDK projection crashed in
+SqliteConnection's static constructor. Seen with SteelSeries GG (GGEZ).
+---
+diff --git a/dlls/windows.storage.applicationdata/applicationdata.c b/dlls/windows.storage.applicationdata/applicationdata.c
+index dbe42b3..d1dc105 100644
+--- a/dlls/windows.storage.applicationdata/applicationdata.c
++++ b/dlls/windows.storage.applicationdata/applicationdata.c
+@@ -20,6 +20,8 @@
+ #include "private.h"
+ #include "wine/debug.h"
+ 
++LONG WINAPI GetCurrentPackageFullName( UINT32 *length, WCHAR *name );
++
+ WINE_DEFAULT_DEBUG_CHANNEL(data);
+ 
+ struct application_data_statics
+@@ -298,6 +300,18 @@ static HRESULT WINAPI application_data_statics_get_Current( IApplicationDataStat
+     TRACE( "iface %p, value %p\n", iface, value );
+ 
+     if (!value) return E_INVALIDARG;
++
++    /* Like Windows, unpackaged (normal desktop) processes have no app data.
++     * Callers such as Microsoft.Data.Sqlite rely on this failing here. */
++    {
++        UINT32 len = 0;
++        if (GetCurrentPackageFullName( &len, NULL ) == APPMODEL_ERROR_NO_PACKAGE)
++        {
++            *value = NULL;
++            return HRESULT_FROM_WIN32( APPMODEL_ERROR_NO_PACKAGE );
++        }
++    }
++
+     if (!(impl = calloc( 1, sizeof(*impl) ))) return E_OUTOFMEMORY;
+ 
+     impl->IApplicationData_iface.lpVtbl = &application_data_vtbl;

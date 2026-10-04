@@ -1,0 +1,33 @@
+From: SKJ Wine <skj-tech@hotmail.com>
+Subject: [PATCH] crypt32: Fail CryptAcquireCertificatePrivateKey with CRYPT_ACQUIRE_ONLY_NCRYPT_KEY_FLAG.
+
+Wine's crypt32 only ever returns legacy CAPI (HCRYPTPROV) handles. When a
+caller passes CRYPT_ACQUIRE_ONLY_NCRYPT_KEY_FLAG it trusts the returned
+handle to be an NCRYPT_KEY_HANDLE. .NET (Core) does exactly this in
+CertificatePal.TryAcquireCngPrivateKey() and then calls NCryptGetProperty()
+on the CAPI handle, which crashes with an AccessViolationException.
+
+Failing the request makes .NET fall back to the CSP (CAPI) path, which
+Wine supports. Seen with SteelSeries GG (SteelSeriesGGEZ.exe, .NET 8).
+---
+ dlls/crypt32/cert.c | 8 ++++++++
+ 1 file changed, 8 insertions(+)
+
+diff --git a/dlls/crypt32/cert.c b/dlls/crypt32/cert.c
+--- a/dlls/crypt32/cert.c
++++ b/dlls/crypt32/cert.c
+@@ -1020,6 +1020,14 @@ BOOL WINAPI CryptAcquireCertificatePrivateKey(PCCERT_CONTEXT pCert,
+     TRACE("(%p, %08lx, %p, %p, %p, %p)\n", pCert, dwFlags, pvReserved,
+      phCryptProv, pdwKeySpec, pfCallerFreeProv);
+ 
++    if (dwFlags & CRYPT_ACQUIRE_ONLY_NCRYPT_KEY_FLAG)
++    {
++        /* we never hand out NCrypt key handles, don't pretend a CAPI one is */
++        FIXME("CRYPT_ACQUIRE_ONLY_NCRYPT_KEY_FLAG not supported, failing\n");
++        SetLastError(NTE_BAD_PROVIDER);
++        return FALSE;
++    }
++
+     if (dwFlags & CRYPT_ACQUIRE_USE_PROV_INFO_FLAG)
+     {
+         DWORD size = 0;
