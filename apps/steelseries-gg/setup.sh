@@ -96,4 +96,7 @@ wine reg add 'HKCU\Control Panel\Mouse' /v MouseThreshold1 /t REG_SZ /d 0 /f >/d
 wine reg add 'HKCU\Control Panel\Mouse' /v MouseThreshold2 /t REG_SZ /d 0 /f >/dev/null 2>&1 || true
 wineserver -w
 
+say "Installing DXVK (GPU-accelerated D3D11 for the GG window)"
+"$ROOT/tools/install-dxvk.sh" "$WINEPREFIX" || say "DXVK install failed - GG still works, just with a slower window"
+
 say "Done. Start GG with: $HERE/run.sh"

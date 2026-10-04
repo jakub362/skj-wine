@@ -40,8 +40,12 @@ Tested: GG 120.0.0, wine-staging 11.19 + SKJ patches 0001–0004, 2026-10-04. **
 
 - [x] **Real Aerox 3 Wireless (2.4 GHz) on Fedora 44: WORKS.** GG detects it (Gear page, 2.4G connected) and **DPI changes apply to the mouse**. Only the udev rule was needed (Wine passes the vendor HID interface through by default). Screenshot: `screenshots/04-aerox3-real.png`
 - [x] GG's "Windows Pointer Options" banner: Wine defaults to MouseSpeed=1; setup.sh now sets it to 0
-- [ ] Battery % shows blank ("REMAINING") – check
-- [ ] Test RGB/illumination, polling rate, sleep timer, button remaps (remaps to keys/macros need skjsshid emulation)
+- [x] Battery: shown as bars (fine)
+- [x] Illumination/RGB, polling rate (mouse reconnects on change, same as Windows), sleep timer: **work**
+- [x] Remap button → keyboard key: **works** (stored on the mouse)
+- [ ] Remap button → other mouse button (e.g. B4→B1): sends **both** B1 and B4. The engine injects B1 itself; on Windows sshid.sys suppresses the original B4. Needs input suppression in skjsshid (evdev grab + uinput helper)
+- [ ] Macros: not onboard, need skjsshid injection (same helper)
+- [x] Slow UI: Wine's D3D11→OpenGL path. Added `tools/install-dxvk.sh` (DXVK 3.1.1); GG itself doesn't disable HW acceleration (only if windowProps.json says so)
 - [x] `sshid.sys` reverse engineered and replaced by `drivers/skjsshid` (see its README)
 - [ ] Optional: implement macro playback / remap / accel via evdev+uinput in skjsshid
 - [ ] Package SKJ Wine (patched wine-staging) for Fedora.
