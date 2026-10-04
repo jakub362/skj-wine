@@ -19,16 +19,16 @@ mkdir -p "$CACHE"
 
 say() { printf '\033[1;36m[skj-wine]\033[0m %s\n' "$*"; }
 
-say "1/8 Creating prefix at $WINEPREFIX"
+say "1/9 Creating prefix at $WINEPREFIX"
 WINEDLLOVERRIDES="mscoree,mshtml=" wineboot -i >/dev/null 2>&1 || true
 wineserver -w
 
-say "2/8 Installing wine-mono $MONO_VER (needed by GG's .NET Framework helpers)"
+say "2/9 Installing wine-mono $MONO_VER (needed by GG's .NET Framework helpers)"
 MONO="$CACHE/wine-mono-$MONO_VER-x86.msi"
 [ -f "$MONO" ] || curl -fL -o "$MONO" "https://dl.winehq.org/wine/wine-mono/$MONO_VER/wine-mono-$MONO_VER-x86.msi"
 wine msiexec /i "$(winepath -w "$MONO")" /qn >/dev/null 2>&1 || true
 
-say "3/8 Downloading and installing SteelSeries GG (silent)"
+say "3/9 Downloading and installing SteelSeries GG (silent)"
 GG="$CACHE/SteelSeriesGGSetup.exe"
 [ -f "$GG" ] || curl -fL -o "$GG" "$GG_URL"
 wine "$GG" /S >/dev/null 2>&1 || true
@@ -38,12 +38,12 @@ GGDIR="$WINEPREFIX/drive_c/Program Files/SteelSeries/GG"
 PD="$WINEPREFIX/drive_c/ProgramData/SteelSeries/GG"
 [ -f "$GGDIR/SteelSeriesGGEZ.exe" ] || { echo "GG install failed"; exit 1; }
 
-say "4/8 Placing dbconf.yml where GG and the Engine look for it"
+say "4/9 Placing dbconf.yml where GG and the Engine look for it"
 mkdir -p "$GGDIR/db" "$GGDIR/apps/engine/db"
 cp "$PD/db/dbconf.yml" "$GGDIR/db/"
 cp "$PD/db/dbconf.yml" "$GGDIR/apps/engine/db/"
 
-say "5/8 Generating the localhost TLS certificate (replaces GenerateSelfSignedCertificate.ps1)"
+say "5/9 Generating the localhost TLS certificate (replaces GenerateSelfSignedCertificate.ps1)"
 CERT="$WINEPREFIX/skj-cert"; mkdir -p "$CERT"
 cat > "$CERT/ext.cnf" <<'EOF'
 [req]
@@ -66,17 +66,23 @@ TP=$(wine "$ROOT/tools/certinstall/certinstall.exe" "$(winepath -w "$CERT/gg.pfx
 wine reg add 'HKLM\Software\SteelSeries' /v GGCertificateThumbprint /t REG_SZ /d "$TP" /f >/dev/null 2>&1
 say "   certificate thumbprint: $TP"
 
-say "6/8 Registering the Engine, Sonar and 3DAT sub-apps with GGEZ (the installer's table migration fails under Wine)"
+say "6/9 Registering the Engine, Sonar and 3DAT sub-apps with GGEZ (the installer's table migration fails under Wine)"
 command -v sqlite3 >/dev/null || { echo "sqlite3 is needed (sudo dnf install sqlite)"; exit 1; }
 sqlite3 "$PD/db/ggez.db" "ATTACH '$PD/db/database.db' AS old;
   INSERT OR IGNORE INTO sub_apps (name,is_enabled,created_at,updated_at,is_windows_supported,executable_name,toggle_via_settings,auto_start,is_browserview_supported)
   SELECT name,is_enabled,created_at,updated_at,is_windows_supported,executable_name,toggle_via_settings,auto_start,is_browserview_supported FROM old.sub_apps;"
 
-say "7/8 Writing shared/guid.json"
+say "7/9 Writing shared/guid.json"
 mkdir -p "$PD/shared"
 [ -f "$PD/shared/guid.json" ] || printf '{"guid":"%s"}' "$(cat /proc/sys/kernel/random/uuid)" > "$PD/shared/guid.json"
 
-say "8/8 Removing the update-service proxy (needs real .NET Framework, not used by SKJ Wine)"
+say "8/9 Installing skjsshid.sys (SKJ Wine replacement for SteelSeries' sshid.sys KMDF driver)"
+cp "$ROOT/drivers/skjsshid/skjsshid.sys" "$WINEPREFIX/drive_c/windows/system32/drivers/skjsshid.sys"
+wine sc create skjsshid type= kernel start= auto binPath= 'C:\windows\system32\drivers\skjsshid.sys' DisplayName= "SKJ Wine SteelSeries engine device" >/dev/null 2>&1 || true
+# GG's own KMDF drivers can't load in Wine (no WDFLDR.SYS); stop them from auto-starting
+for svc in ssdevfactory sshid msihid ssbthid ssps2 sssmbus; do wine sc config "$svc" start= disabled >/dev/null 2>&1 || true; done
+
+say "9/9 Removing the update-service proxy (needs real .NET Framework, not used by SKJ Wine)"
 wine sc delete SteelSeriesGGUpdateServiceProxy >/dev/null 2>&1 || true
 wineserver -w
 

@@ -10,7 +10,7 @@ Base: **wine-staging** + the patches in `patches/wine/`, plus per-app setup scri
 
 | App | State |
 |---|---|
-| SteelSeries GG | **Boots fully**: GGEZ, GG core, Engine, Prism, Moments and the GG window. Next: real-mouse test. See `apps/steelseries-gg/NOTES.md` |
+| SteelSeries GG | **Boots fully**: GGEZ, GG core, Engine, Prism, Moments, the GG window, and `skjsshid.sys` standing in for SteelSeries' kernel driver. Next: real-mouse test. See `apps/steelseries-gg/NOTES.md` |
 | Corsair iCUE | Not started |
 
 ## Install on Fedora
@@ -27,6 +27,8 @@ Installs wine-staging 11.19 from WineHQ, makes a private copy in `dist/` with th
 patches/wine/          Wine patches (each one fixes a real bug, upstreamable)
 tools/certinstall/     certinstall.exe – imports a PFX into a Windows cert store (replaces PowerShell)
 tools/chaintest/       chaintest.exe – prints Wine's certificate chain trust status (debugging)
+tools/sstest/          sstest.exe – exercises \\.\SSengine like GG does
+drivers/skjsshid/      skjsshid.sys – WDM replacement for SteelSeries' KMDF sshid.sys
 lib/wine/               prebuilt patched DLLs (wine-11.19, x86_64)
 install-fedora.sh      one-shot Fedora installer
 apps/<app>/setup.sh    builds a prefix for that app

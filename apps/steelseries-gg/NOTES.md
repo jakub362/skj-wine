@@ -16,7 +16,8 @@ Tested: GG 120.0.0, wine-staging 11.19 + SKJ patches 0001–0004, 2026-10-04.
 | `SteelSeriesMoments.exe` | Go, clip recorder | **Runs** |
 | `SteelSeriesGGClient.exe` | Electron UI | **Runs**: login → skip → main app → Engine page. The login screen's left hero video stays blank (artwork on other screens is fine) |
 | Update service proxy | .NET Framework Windows service | Not used (crashes on wine-mono; GGEZ is started directly) |
-| `sshid.sys`, `ssdevfactory.sys`, … | KMDF kernel drivers | Can't load (no KMDF in Wine). `sshid.sys` is a HID filter listing Aerox 3 PIDs. **Unknown if the Engine needs it — needs a real-mouse test** |
+| `sshid.sys` | KMDF input filter → `\\.\SSengine` | **Replaced by `drivers/skjsshid`** (WDM, loads in Wine). Engine connects and enables it. Handles GG's *software* features only (macros, remaps, accel/decel, angle snapping), which are not emulated yet; DPI/RGB/polling go over HID |
+| `ssdevfactory.sys`, `msihid.sys`, … | other KMDF drivers (virtual devices, MSI boards, PS/2, SMBus) | Can't load, disabled by setup.sh; not needed for mice |
 
 ## Problems found and fixes
 
@@ -38,5 +39,6 @@ Tested: GG 120.0.0, wine-staging 11.19 + SKJ patches 0001–0004, 2026-10-04.
 ## Next steps
 
 - [ ] **Real Aerox 3 on Fedora**: enable hidraw (`DisableHidraw=0` under `HKLM\System\CurrentControlSet\Services\winebus`) + udev rule for `1038:*`, check the Engine page lists the mouse.
-- [ ] If the Engine needs `sshid.sys`: find what it calls on it (DeviceIoControl codes) and emulate in a Wine-side driver.
+- [x] `sshid.sys` reverse engineered and replaced by `drivers/skjsshid` (see its README)
+- [ ] Optional: implement macro playback / remap / accel via evdev+uinput in skjsshid
 - [ ] Package SKJ Wine (patched wine-staging) for Fedora.

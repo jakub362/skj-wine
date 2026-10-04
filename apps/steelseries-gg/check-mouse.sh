@@ -19,6 +19,8 @@ LOGS="$WINEPREFIX/drive_c/ProgramData/SteelSeries/GG/Logs"
       getfacl -p /dev/$n 2>/dev/null | grep "^user:$USER" || true
     fi
   done
+  echo "--- skjsshid driver (\\\\.\\SSengine)"
+  WINEDEBUG=-all "$ROOT/dist/bin/wine" sc query skjsshid 2>/dev/null | grep -E "STATE" || echo "skjsshid service not found"
   echo "--- running GG processes"
   pgrep -af "SteelSeries" | grep -v -- "--type=" | grep -o -E "[A-Za-z0-9]+\.exe" | sort | uniq -c
   echo "--- Engine log lines about devices (last 60)"

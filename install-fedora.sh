@@ -29,7 +29,7 @@ if [ "$(/opt/wine-staging/bin/wine --version 2>/dev/null)" != "wine-$WINE_VER (S
   sudo dnf install -y "winehq-staging-$WINE_VER*" "wine-staging-$WINE_VER*" \
     || { say "Could not install wine-staging $WINE_VER from WineHQ for Fedora $FEDORA."; exit 1; }
 fi
-sudo dnf install -y sqlite openssl curl cabextract >/dev/null
+sudo dnf install -y sqlite openssl curl cabextract usbutils >/dev/null
 
 # --- 2. private SKJ Wine copy ---------------------------------------------------
 if [ ! -x "$ROOT/dist/bin/wine" ] || [ "$("$ROOT/dist/bin/wine" --version)" != "wine-$WINE_VER (Staging)" ]; then
