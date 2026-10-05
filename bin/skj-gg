@@ -6,6 +6,7 @@
 #   skj-gg --stop       quit GG and its Wine processes
 #   skj-gg --setup      (re)run the GG setup into the prefix
 #   skj-gg --autostart on|off   start GG when you log in
+#   skj-gg ssgg://...      open a GG link (what the app menu entry registers for ssgg:// URLs)
 #   skj-gg --gamesense [--remove]   point games at GG's GameSense server again (done on every start)
 #   skj-gg --remove-data        delete the GG prefix (settings, logs) - asks first
 set -uo pipefail
@@ -76,8 +77,12 @@ if [ "${1:-}" = --auto ]; then
   exec wine SteelSeriesGGEZ.exe "${GG_ARGS[@]}" -auto=true >"$LOGDIR/gg.log" 2>&1
 fi
 
+# ssgg:// links from a browser (GG registers this protocol on Windows)
+LINK=(); DEEPLINK=()
+case "${1:-}" in ssgg://*) LINK=("$1"); DEEPLINK=(-deepLink "$1") ;; esac
+
 if running; then
   # GG is already running in the background: open its window (single-instance UI)
-  exec wine SteelSeriesGGClient.exe 'C:\ProgramData\SteelSeries\GG\coreProps.json' >>"$LOGDIR/gg.log" 2>&1
+  exec wine SteelSeriesGGClient.exe 'C:\ProgramData\SteelSeries\GG\coreProps.json' "${LINK[@]}" >>"$LOGDIR/gg.log" 2>&1
 fi
-exec wine SteelSeriesGGEZ.exe "${GG_ARGS[@]}" >"$LOGDIR/gg.log" 2>&1
+exec wine SteelSeriesGGEZ.exe "${GG_ARGS[@]}" "${DEEPLINK[@]}" >"$LOGDIR/gg.log" 2>&1

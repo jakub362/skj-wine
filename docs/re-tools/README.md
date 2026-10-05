@@ -16,6 +16,7 @@ Need: `pip install pefile capstone --break-system-packages`, `mingw64-binutils` 
 | `gostr.py EXE h:ADDR \| s:ADDR:LEN` | read a Go string header / raw string at a virtual address |
 | `callers.py ASM SYMS ADDR...` | functions that reference an address (`objdump -d -M intel --no-show-raw-insn EXE > ASM` first) |
 | `cdp.py` | drive GG's Electron UI without touching the mouse: start `SteelSeriesGGClient.exe … --remote-debugging-port=9223 --remote-allow-origins=*`, then `cdp.py list`, `cdp.py app.asar/render/index.html eval\|shot\|click\|clickxy …` |
+| `leds.py LOG` | per-second summary of the LED frames actually written to the Aerox 3 Wireless, from a `WINEDEBUG=+hid,+timestamp` log |
 | `wslisten.py SECONDS` | print the events on GGEZ's (`:6327`) and the GG core's (`:6329`) `/eventing` websockets side by side |
 
 Live tracing of the Go processes works with plain `gdb -p <pid>` on the Wine process (image base

@@ -3,11 +3,12 @@ Type=Application
 Name=SteelSeries GG
 GenericName=Gaming peripheral settings
 Comment=SteelSeries GG running under SKJ Wine
-Exec=skj-gg
+Exec=skj-gg %u
 Icon=skj-steelseries-gg
 Categories=Settings;HardwareSettings;Utility;
 Keywords=steelseries;mouse;keyboard;headset;rgb;dpi;gg;engine;
 StartupWMClass=steelseriesggclient.exe
+MimeType=x-scheme-handler/ssgg;
 Actions=Stop;
 
 [Desktop Action Stop]
