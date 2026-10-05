@@ -14,7 +14,7 @@ scripts that do what the Windows installers can't do under Wine.
 
 | App | State |
 |---|---|
-| **SteelSeries GG** | **Works on real hardware** (Aerox 3 Wireless, Fedora 44): device detected, DPI, RGB/illumination, polling rate, sleep timer, button remaps (once saved), key remaps, battery, GPU-accelerated window (DXVK). Prism lighting (effects, presets; the audio visualizer effect still shows plain white) and GameSense (Proton prefixes, CS2/Dota 2 config) work. Not yet: macros, 3D aim trainer, Moments, Sonar. Details: [`apps/steelseries-gg/NOTES.md`](apps/steelseries-gg/NOTES.md) |
+| **SteelSeries GG** | **Works on real hardware** (Aerox 3 Wireless, Fedora 44): device detected, DPI, RGB/illumination, polling rate, sleep timer, button remaps (once saved), key remaps, battery, GPU-accelerated window (DXVK). Prism lighting (effects, presets), GameSense (Proton prefixes, CS2/Dota 2 config; checked with CS2) work. Audio visualizer on a mouse needs the optional `apps/steelseries-gg/prism-av-mouse.sh`. Not yet: macros, 3D aim trainer, Moments, Sonar. Details: [`apps/steelseries-gg/NOTES.md`](apps/steelseries-gg/NOTES.md) |
 | Corsair iCUE | Not started |
 | Winamp (old app test) | Planned |
 | Adobe | Long term |
@@ -106,6 +106,7 @@ wineserver -k           # kill everything in the prefix
 | Button remap sends both buttons | only in GG's *live preview*; press **Save** and the remap is written to the mouse |
 | Changing polling rate disconnects the mouse | normal (same on Windows) |
 | A game doesn't light up the mouse (GameSense) | start GG **before** the game (the port changes on every GG start). `cat ~/.cache/skj-wine/gamesense.log` shows where the address was written; run `skj-gg --gamesense` to redo it. Prefixes outside Steam/Heroic: `SKJ_GAMESENSE_PREFIXES=/path/to/prefix:/other skj-gg` |
+| Audio Visualizer effect leaves the mouse plain white | GG only samples audio when a per-key keyboard is connected. Optional: `skj-gg --stop; apps/steelseries-gg/prism-av-mouse.sh; skj-gg` (GG 120.0.0 only, `--undo` to revert) |
 | Macros don't play | not implemented yet (`skj-inputd`, see roadmap) |
 | Prism tab says "Device Not Found" / Prism effects don't reach the mouse | old `crypt32.dll` without patch 0005: update SKJ Wine (`./build-rpm.sh --install`). Check: with `-enableDebugLog`, `gg-errorlog.txt` must not contain `device executor for device … not found` |
 | More Wine detail | run with `WINEDEBUG=err+all,warn+hid,warn+setupapi skj-gg`; driver log: `WINEDEBUG=+debugstr` shows `skjsshid:` lines |
