@@ -1,0 +1,105 @@
+#!/usr/bin/env bash
+# skj-gg-gamesense - let games find GG's GameSense server.
+#
+# GG's Engine listens on a random 127.0.0.1 port and writes it to
+# C:\ProgramData\SteelSeries\SteelSeries Engine 3\coreProps.json in GG's prefix. Games run in
+# other prefixes (Proton) or natively, so they never see that file. This copies it where they look:
+#   - every Steam/Proton prefix (steamapps/compatdata/<appid>/pfx) and Heroic prefix
+#   - prefixes listed in SKJ_GAMESENSE_PREFIXES (colon separated WINEPREFIX paths)
+#   - CS2 and Dota 2 (native): Valve game state integration cfg pointing at the Engine,
+#     which GG on Windows writes itself when it sees the game running
+#
+#   skj-gg-gamesense            sync once
+#   skj-gg-gamesense --watch    sync now and whenever GG restarts (new port); ends when GG quits
+#   skj-gg-gamesense --remove   delete everything this script wrote
+set -uo pipefail
+PREFIX="${WINEPREFIX:-${SKJ_GG_PREFIX:-$HOME/.local/share/skj-wine/steelseries-gg}}"
+PROPS="$PREFIX/drive_c/ProgramData/SteelSeries/SteelSeries Engine 3/coreProps.json"
+ENGINE="$PREFIX/drive_c/Program Files/SteelSeries/GG/apps/engine/SteelSeriesEngine.exe"
+REL="ProgramData/SteelSeries/SteelSeries Engine 3"
+CFG=gamestate_integration_steelseries.cfg
+
+steam_libraries() {
+  local root vdf
+  for root in "$HOME/.local/share/Steam" "$HOME/.steam/steam" "$HOME/.var/app/com.valvesoftware.Steam/.local/share/Steam"; do
+    [ -d "$root/steamapps" ] && readlink -f "$root"
+    vdf="$root/steamapps/libraryfolders.vdf"
+    [ -f "$vdf" ] && sed -n 's/^[[:space:]]*"path"[[:space:]]*"\(.*\)"$/\1/p' "$vdf"
+  done | sort -u
+}
+
+# every drive_c of another prefix that a game could run in
+game_prefixes() {
+  local lib d p
+  while read -r lib; do
+    for d in "$lib"/steamapps/compatdata/*/pfx/drive_c; do [ -d "$d" ] && echo "$d"; done
+  done < <(steam_libraries)
+  for d in "$HOME"/Games/Heroic/Prefixes/*/drive_c "$HOME"/Games/Heroic/Prefixes/*/*/drive_c \
+           "$HOME"/Games/Heroic/Prefixes/*/*/pfx/drive_c; do [ -d "$d" ] && echo "$d"; done
+  IFS=: read -ra extra <<< "${SKJ_GAMESENSE_PREFIXES:-}"
+  for p in "${extra[@]}"; do [ -d "$p/drive_c" ] && echo "$p/drive_c"; done
+}
+
+# Valve GSI cfg folders: "<game> <folder>"
+valve_cfg_dirs() {
+  local lib
+  while read -r lib; do
+    [ -d "$lib/steamapps/common/Counter-Strike Global Offensive/game/csgo/cfg" ] &&
+      echo "csgo $lib/steamapps/common/Counter-Strike Global Offensive/game/csgo/cfg"
+    [ -d "$lib/steamapps/common/dota 2 beta/game/dota/cfg" ] &&
+      echo "dota2 $lib/steamapps/common/dota 2 beta/game/dota/cfg/gamestate_integration"
+  done < <(steam_libraries)
+}
+
+# The cfg text is taken from the user's own Engine binary (same text GG writes on Windows).
+valve_cfg() { # game address
+  python3 - "$ENGINE" "$1" "$2" <<'EOF'
+import sys
+data, game, addr = open(sys.argv[1], 'rb').read(), sys.argv[2], sys.argv[3]
+uri = data.find(b'http://%s/' + game.encode() + b'_game_event')
+start, end = data.rfind(b'"S', 0, uri), data.find(b'}\r\n}', uri)   # title line .. "data" block + closing brace
+if min(uri, start, end) < 0 or uri - start > 100 or end - uri > 1000:
+    sys.exit(1)
+sys.stdout.write(data[start:end + 4].decode().replace('%s', addr) + '\r\n')
+EOF
+}
+
+sync_once() {
+  [ -f "$PROPS" ] || return 1
+  local addr d game dir n=0
+  addr=$(sed -n 's/.*"address":"\([^"]*\)".*/\1/p' "$PROPS")
+  [ -n "$addr" ] || return 1
+  while read -r d; do
+    [ "$d" = "$PREFIX/drive_c" ] && continue
+    mkdir -p "$d/$REL" && cp "$PROPS" "$d/$REL/coreProps.json" && n=$((n+1))
+  done < <(game_prefixes)
+  while read -r game dir; do
+    [ -n "$dir" ] || continue
+    mkdir -p "$dir" && valve_cfg "$game" "$addr" > "$dir/$CFG.tmp" && mv "$dir/$CFG.tmp" "$dir/$CFG" && n=$((n+1)) || rm -f "$dir/$CFG.tmp"
+  done < <(valve_cfg_dirs)
+  echo "[skj-gg-gamesense] GameSense at $addr -> $n place(s)"
+}
+
+case "${1:-}" in
+  --remove)
+    while read -r d; do
+      [ "$d" = "$PREFIX/drive_c" ] && continue
+      rm -f "$d/$REL/coreProps.json"; rmdir -p "$d/$REL" 2>/dev/null
+    done < <(game_prefixes)
+    while read -r game dir; do [ -n "$dir" ] && rm -f "$dir/$CFG"; done < <(valve_cfg_dirs)
+    exit 0 ;;
+  --watch)
+    last=""; seen=0; waited=0
+    while :; do
+      if pgrep -f 'SteelSeriesGGEZ\.exe' >/dev/null; then seen=1; elif [ "$seen" = 1 ]; then exit 0; fi
+      # GG never came up (first-run setup can take minutes): give up after 15 min
+      [ "$seen" = 1 ] || { waited=$((waited+5)); [ "$waited" -lt 900 ] || exit 1; }
+      now=$(cat "$PROPS" 2>/dev/null)
+      # the file is rewritten when the Engine (re)starts; only trust it while the Engine runs
+      if [ -n "$now" ] && [ "$now" != "$last" ] && pgrep -f 'SteelSeriesEngine\.exe' >/dev/null; then
+        sync_once && last="$now"
+      fi
+      sleep 5
+    done ;;
+  *) sync_once || { echo "[skj-gg-gamesense] GG isn't set up or hasn't started yet ($PROPS)" >&2; exit 1; } ;;
+esac

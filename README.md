@@ -14,7 +14,7 @@ scripts that do what the Windows installers can't do under Wine.
 
 | App | State |
 |---|---|
-| **SteelSeries GG** | **Works on real hardware** (Aerox 3 Wireless, Fedora 44): device detected, DPI, RGB/illumination, polling rate, sleep timer, button remaps (once saved), key remaps, battery, GPU-accelerated window (DXVK). Prism lighting (effects, presets) works since patch 0005. Not yet: macros, GameSense games, 3D aim trainer, Moments, Sonar. Details: [`apps/steelseries-gg/NOTES.md`](apps/steelseries-gg/NOTES.md) |
+| **SteelSeries GG** | **Works on real hardware** (Aerox 3 Wireless, Fedora 44): device detected, DPI, RGB/illumination, polling rate, sleep timer, button remaps (once saved), key remaps, battery, GPU-accelerated window (DXVK). Prism lighting (effects, presets, audio visualizer) and GameSense (Proton prefixes, CS2/Dota 2 config) work. Not yet: macros, 3D aim trainer, Moments, Sonar. Details: [`apps/steelseries-gg/NOTES.md`](apps/steelseries-gg/NOTES.md) |
 | Corsair iCUE | Not started |
 | Winamp (old app test) | Planned |
 | Adobe | Long term |
@@ -60,6 +60,8 @@ skj-gg --auto              start GG in the background (what autostart uses)
 skj-gg --stop              quit GG and its Wine processes
 skj-gg --autostart on|off  start GG at login
 skj-gg --setup             redo GG's setup in the existing prefix
+skj-gg --gamesense         point games at GG again by hand (skj-gg does it on every start)
+skj-gg --gamesense --remove  delete the GameSense files written into game folders
 skj-gg --remove-data       delete GG's prefix (all GG settings) - asks first
 ```
 
@@ -103,6 +105,7 @@ wineserver -k           # kill everything in the prefix
 | Menu entry missing | `kbuildsycoca6 --noincremental`; search "SteelSeries" (it's under *Settings*) |
 | Button remap sends both buttons | only in GG's *live preview*; press **Save** and the remap is written to the mouse |
 | Changing polling rate disconnects the mouse | normal (same on Windows) |
+| A game doesn't light up the mouse (GameSense) | start GG **before** the game (the port changes on every GG start). `cat ~/.cache/skj-wine/gamesense.log` shows where the address was written; run `skj-gg --gamesense` to redo it. Prefixes outside Steam/Heroic: `SKJ_GAMESENSE_PREFIXES=/path/to/prefix:/other skj-gg` |
 | Macros don't play | not implemented yet (`skj-inputd`, see roadmap) |
 | Prism tab says "Device Not Found" / Prism effects don't reach the mouse | old `crypt32.dll` without patch 0005: update SKJ Wine (`./build-rpm.sh --install`). Check: with `-enableDebugLog`, `gg-errorlog.txt` must not contain `device executor for device … not found` |
 | More Wine detail | run with `WINEDEBUG=err+all,warn+hid,warn+setupapi skj-gg`; driver log: `WINEDEBUG=+debugstr` shows `skjsshid:` lines |
@@ -116,9 +119,10 @@ install-local.sh           menu entry + autostart for the folder install
 build-rpm.sh               build/install the RPM (packaging/skj-wine.spec)
 bin/skj-gg                 GG launcher
 bin/skj-gg-icons           GG icon extraction + winemenubuilder cleanup
+bin/skj-gg-gamesense       copies GG's GameSense address into game prefixes, writes the CS2/Dota 2 GSI config
 apps/steelseries-gg/       setup.sh (prefix + all fixes), run.sh, check-mouse.sh, NOTES.md, screenshots/
 patches/wine/              Wine patches (each fixes a real Wine bug; upstreamable)
-lib/wine/x86_64-windows/   prebuilt patched DLLs (crypt32, secur32, windows.storage.applicationdata) for wine-11.19
+lib/wine/x86_64-windows/   prebuilt patched DLLs (crypt32, secur32, mmdevapi, windows.storage.applicationdata) for wine-11.19
 drivers/skjsshid/          skjsshid.sys: WDM stand-in for SteelSeries' KMDF sshid.sys (\\.\SSengine)
 tools/certinstall/         certinstall.exe: import a PFX into a Windows cert store (replaces PowerShell)
 tools/chaintest/           chaintest.exe: print Wine's cert chain trust status
@@ -137,6 +141,7 @@ packaging/skj-wine.spec    RPM spec
 | `0002-windows.storage.applicationdata-no-package-identity` | `ApplicationData.Current` worked for unpackaged apps → `Microsoft.Data.Sqlite` crashed |
 | `0003-crypt32-pfx-key-spec-and-keyset` | `PFXImportCertStore` stored the wrong key spec and dropped `CRYPT_MACHINE_KEYSET` → NTE_NO_KEY / NTE_BAD_KEYSET |
 | `0004-secur32-machine-keyset-containers` | Schannel only looked for key containers in HKCU → TLS servers with LocalMachine certs dropped connections |
+| `0006-mmdevapi-audio-meter-information` | `IAudioMeterInformation` (endpoint peak meter) didn't exist → Prism's audio visualizer never sampled audio |
 | `0005-crypt32-match-ip-address-alt-names` | SSL chain policy ignored `iPAddress` subjectAltName entries → `https://127.0.0.1` with a localhost cert gave `CERT_E_CN_NO_MATCH`; GGEZ's event proxy to the GG core never connected, so Prism never lit a device |
 
 ## Building
@@ -147,6 +152,7 @@ packaging/skj-wine.spec    RPM spec
 sudo dnf install mingw64-gcc mingw32-gcc flex bison gcc make   # Fedora
 git clone https://gitlab.winehq.org/wine/wine.git && cd wine && git checkout wine-11.19
 for p in ../skj-wine/patches/wine/*.patch; do git apply "$p"; done
+git add -A && tools/make_makefiles      # patch 0006 adds a source file
 mkdir ../wbuild && cd ../wbuild
 ../wine/configure --enable-win64 --without-x --without-freetype --without-gstreamer --without-pulse \
   --without-alsa --without-cups --without-sane --without-v4l2 --without-gphoto --without-krb5 \
@@ -154,8 +160,9 @@ mkdir ../wbuild && cd ../wbuild
   --without-dbus --without-gnutls --without-sdl --without-capi --without-oss --without-udev \
   --without-coreaudio --without-inotify --without-fontconfig
 make -j$(nproc) dlls/crypt32/x86_64-windows/crypt32.dll dlls/secur32/x86_64-windows/secur32.dll \
+  dlls/mmdevapi/x86_64-windows/mmdevapi.dll \
   dlls/windows.storage.applicationdata/x86_64-windows/windows.storage.applicationdata.dll
-for d in crypt32 secur32 windows.storage.applicationdata; do
+for d in crypt32 secur32 mmdevapi windows.storage.applicationdata; do
   x86_64-w64-mingw32-strip dlls/$d/x86_64-windows/$d.dll
   cp dlls/$d/x86_64-windows/$d.dll ../skj-wine/lib/wine/x86_64-windows/
 done

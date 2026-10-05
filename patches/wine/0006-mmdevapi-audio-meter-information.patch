@@ -1,0 +1,394 @@
+From: SKJ Wine <skj-tech@hotmail.com>
+Subject: [PATCH] mmdevapi: Implement IAudioMeterInformation for endpoints.
+
+IMMDevice::Activate failed for IID_IAudioMeterInformation ("Invalid/unknown
+iid"), and the interface was only forward declared in endpointvolume.idl.
+The peak values are taken from a shared mode stream that is opened on first
+use: a loopback stream for render endpoints, a capture stream for capture
+endpoints.
+
+Seen with SteelSeries GG: Prism's audio visualizer (audio-sample-lib.dll)
+activates the meter of the default render endpoint next to its own loopback
+client and never sampled any audio without it.
+---
+diff --git a/dlls/mmdevapi/audiometer.c b/dlls/mmdevapi/audiometer.c
+new file mode 100644
+index 0000000..dca9355
+--- /dev/null
++++ b/dlls/mmdevapi/audiometer.c
+@@ -0,0 +1,306 @@
++/*
++ * IAudioMeterInformation for endpoints
++ *
++ * Copyright 2026 SKJ Wine
++ *
++ * This library is free software; you can redistribute it and/or
++ * modify it under the terms of the GNU Lesser General Public
++ * License as published by the Free Software Foundation; either
++ * version 2.1 of the License, or (at your option) any later version.
++ *
++ * This library is distributed in the hope that it will be useful,
++ * but WITHOUT ANY WARRANTY; without even the implied warranty of
++ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
++ * Lesser General Public License for more details.
++ *
++ * You should have received a copy of the GNU Lesser General Public
++ * License along with this library; if not, write to the Free Software
++ * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA
++ */
++
++#define COBJMACROS
++
++#include <stdarg.h>
++#include <math.h>
++
++#include "windef.h"
++#include "winbase.h"
++#include "winnls.h"
++#include "winreg.h"
++#include "wine/debug.h"
++
++#include "ole2.h"
++#include "mmdeviceapi.h"
++#include "mmsystem.h"
++#include "mmreg.h"
++#include "ks.h"
++#include "ksmedia.h"
++#include "dsound.h"
++#include "audioclient.h"
++#include "endpointvolume.h"
++#include "audiopolicy.h"
++#include "spatialaudioclient.h"
++
++#include "mmdevapi_private.h"
++
++WINE_DEFAULT_DEBUG_CHANNEL(mmdevapi);
++
++#define METER_MAX_CHANNELS 32
++
++/* The peak values come from a shared mode stream on the endpoint that is only
++ * read, never played: a loopback stream for render endpoints, a normal capture
++ * stream for capture endpoints.  It is opened on first use. */
++typedef struct AudioMeter {
++    IAudioMeterInformation IAudioMeterInformation_iface;
++    LONG ref;
++
++    MMDevice *device;
++    CRITICAL_SECTION lock;
++    IAudioClient *client;
++    IAudioCaptureClient *capture;
++    UINT channels, bytes_per_sample;
++    BOOL is_float;
++    float peaks[METER_MAX_CHANNELS];
++} AudioMeter;
++
++static inline AudioMeter *impl_from_IAudioMeterInformation(IAudioMeterInformation *iface)
++{
++    return CONTAINING_RECORD(iface, AudioMeter, IAudioMeterInformation_iface);
++}
++
++static void meter_close_stream(AudioMeter *This)
++{
++    if (This->capture) IAudioCaptureClient_Release(This->capture);
++    if (This->client)
++    {
++        IAudioClient_Stop(This->client);
++        IAudioClient_Release(This->client);
++    }
++    This->capture = NULL;
++    This->client = NULL;
++}
++
++static HRESULT meter_open_stream(AudioMeter *This)
++{
++    WAVEFORMATEXTENSIBLE *fmtex;
++    WAVEFORMATEX *fmt = NULL;
++    HRESULT hr;
++
++    if (This->capture) return S_OK;
++
++    hr = IMMDevice_Activate(&This->device->IMMDevice_iface, &IID_IAudioClient, CLSCTX_INPROC_SERVER,
++            NULL, (void **)&This->client);
++    if (FAILED(hr)) goto fail;
++    hr = IAudioClient_GetMixFormat(This->client, &fmt);
++    if (FAILED(hr)) goto fail;
++
++    fmtex = (WAVEFORMATEXTENSIBLE *)fmt;
++    This->channels = min(fmt->nChannels, METER_MAX_CHANNELS);
++    This->bytes_per_sample = fmt->wBitsPerSample / 8;
++    This->is_float = fmt->wFormatTag == WAVE_FORMAT_IEEE_FLOAT ||
++            (fmt->wFormatTag == WAVE_FORMAT_EXTENSIBLE &&
++             IsEqualGUID(&fmtex->SubFormat, &KSDATAFORMAT_SUBTYPE_IEEE_FLOAT));
++    if (!This->channels || fmt->nChannels > METER_MAX_CHANNELS ||
++        (This->is_float ? This->bytes_per_sample != 4 : (This->bytes_per_sample < 1 || This->bytes_per_sample > 4)))
++    {
++        FIXME("unsupported mix format: tag %#x, %u channels, %u bits\n", fmt->wFormatTag,
++                fmt->nChannels, fmt->wBitsPerSample);
++        hr = E_NOTIMPL;
++        goto fail;
++    }
++
++    hr = IAudioClient_Initialize(This->client, AUDCLNT_SHAREMODE_SHARED,
++            This->device->flow == eRender ? AUDCLNT_STREAMFLAGS_LOOPBACK : 0,
++            2000000 /* 200 ms */, 0, fmt, NULL);
++    if (FAILED(hr)) goto fail;
++    hr = IAudioClient_GetService(This->client, &IID_IAudioCaptureClient, (void **)&This->capture);
++    if (FAILED(hr)) goto fail;
++    hr = IAudioClient_Start(This->client);
++    if (FAILED(hr)) goto fail;
++
++    CoTaskMemFree(fmt);
++    return S_OK;
++
++fail:
++    WARN("cannot open the metering stream: %08lx\n", hr);
++    CoTaskMemFree(fmt);
++    meter_close_stream(This);
++    return hr;
++}
++
++static float meter_sample(const AudioMeter *This, const BYTE *p)
++{
++    if (This->is_float) return fabsf(*(const float *)p);
++    switch (This->bytes_per_sample)
++    {
++    case 1: return fabsf((*p - 128) / 128.0f);
++    case 2: return fabsf(*(const short *)p / 32768.0f);
++    case 3: return fabsf((int)((p[0] << 8) | (p[1] << 16) | ((UINT)p[2] << 24)) / 2147483648.0f);
++    default: return fabsf(*(const int *)p / 2147483648.0f);
++    }
++}
++
++/* Read everything that arrived since the last call and keep the peaks of it.
++ * If nothing new arrived the previous peaks stay valid (callers poll faster
++ * than the audio period). */
++static HRESULT meter_update(AudioMeter *This)
++{
++    BOOL got_data = FALSE;
++    float peaks[METER_MAX_CHANNELS] = {0};
++    UINT32 frames, i, c;
++    DWORD flags;
++    BYTE *data;
++    HRESULT hr;
++
++    if (FAILED(hr = meter_open_stream(This))) return hr;
++
++    while (SUCCEEDED(hr = IAudioCaptureClient_GetBuffer(This->capture, &data, &frames, &flags, NULL, NULL)) &&
++           hr != AUDCLNT_S_BUFFER_EMPTY)
++    {
++        got_data = TRUE;
++        if (!(flags & AUDCLNT_BUFFERFLAGS_SILENT))
++        {
++            for (i = 0; i < frames; i++)
++                for (c = 0; c < This->channels; c++, data += This->bytes_per_sample)
++                {
++                    float v = meter_sample(This, data);
++                    if (v > peaks[c]) peaks[c] = v;
++                }
++        }
++        IAudioCaptureClient_ReleaseBuffer(This->capture, frames);
++    }
++    if (FAILED(hr))
++    {
++        /* e.g. the device went away: start over on the next call */
++        meter_close_stream(This);
++        memset(This->peaks, 0, sizeof(This->peaks));
++        return hr;
++    }
++    if (got_data)
++        for (c = 0; c < This->channels; c++) This->peaks[c] = min(peaks[c], 1.0f);
++    return S_OK;
++}
++
++static HRESULT WINAPI meter_QueryInterface(IAudioMeterInformation *iface, REFIID riid, void **ppv)
++{
++    AudioMeter *This = impl_from_IAudioMeterInformation(iface);
++
++    TRACE("(%p)->(%s,%p)\n", This, debugstr_guid(riid), ppv);
++
++    if (!ppv) return E_POINTER;
++    *ppv = NULL;
++    if (IsEqualIID(riid, &IID_IUnknown) || IsEqualIID(riid, &IID_IAudioMeterInformation))
++        *ppv = &This->IAudioMeterInformation_iface;
++    else
++        return E_NOINTERFACE;
++    IUnknown_AddRef((IUnknown *)*ppv);
++    return S_OK;
++}
++
++static ULONG WINAPI meter_AddRef(IAudioMeterInformation *iface)
++{
++    AudioMeter *This = impl_from_IAudioMeterInformation(iface);
++    ULONG ref = InterlockedIncrement(&This->ref);
++    TRACE("(%p) new ref %lu\n", This, ref);
++    return ref;
++}
++
++static ULONG WINAPI meter_Release(IAudioMeterInformation *iface)
++{
++    AudioMeter *This = impl_from_IAudioMeterInformation(iface);
++    ULONG ref = InterlockedDecrement(&This->ref);
++    TRACE("(%p) new ref %lu\n", This, ref);
++    if (!ref)
++    {
++        meter_close_stream(This);
++        IMMDevice_Release(&This->device->IMMDevice_iface);
++        DeleteCriticalSection(&This->lock);
++        free(This);
++    }
++    return ref;
++}
++
++static HRESULT WINAPI meter_GetPeakValue(IAudioMeterInformation *iface, float *peak)
++{
++    AudioMeter *This = impl_from_IAudioMeterInformation(iface);
++    HRESULT hr;
++    UINT c;
++
++    TRACE("(%p)->(%p)\n", This, peak);
++
++    if (!peak) return E_POINTER;
++    *peak = 0.0f;
++    EnterCriticalSection(&This->lock);
++    if (SUCCEEDED(hr = meter_update(This)))
++        for (c = 0; c < This->channels; c++) *peak = max(*peak, This->peaks[c]);
++    LeaveCriticalSection(&This->lock);
++    return hr;
++}
++
++static HRESULT WINAPI meter_GetMeteringChannelCount(IAudioMeterInformation *iface, UINT *count)
++{
++    AudioMeter *This = impl_from_IAudioMeterInformation(iface);
++    HRESULT hr;
++
++    TRACE("(%p)->(%p)\n", This, count);
++
++    if (!count) return E_POINTER;
++    EnterCriticalSection(&This->lock);
++    if (SUCCEEDED(hr = meter_open_stream(This))) *count = This->channels;
++    LeaveCriticalSection(&This->lock);
++    return hr;
++}
++
++static HRESULT WINAPI meter_GetChannelsPeakValues(IAudioMeterInformation *iface, UINT32 count, float *peaks)
++{
++    AudioMeter *This = impl_from_IAudioMeterInformation(iface);
++    HRESULT hr;
++
++    TRACE("(%p)->(%u,%p)\n", This, count, peaks);
++
++    if (!peaks) return E_POINTER;
++    EnterCriticalSection(&This->lock);
++    if (SUCCEEDED(hr = meter_update(This)))
++    {
++        if (count != This->channels) hr = E_INVALIDARG;
++        else memcpy(peaks, This->peaks, count * sizeof(*peaks));
++    }
++    LeaveCriticalSection(&This->lock);
++    return hr;
++}
++
++static HRESULT WINAPI meter_QueryHardwareSupport(IAudioMeterInformation *iface, DWORD *mask)
++{
++    TRACE("(%p)->(%p)\n", iface, mask);
++
++    if (!mask) return E_POINTER;
++    *mask = 0;
++    return S_OK;
++}
++
++static const IAudioMeterInformationVtbl meter_vtbl =
++{
++    meter_QueryInterface,
++    meter_AddRef,
++    meter_Release,
++    meter_GetPeakValue,
++    meter_GetMeteringChannelCount,
++    meter_GetChannelsPeakValues,
++    meter_QueryHardwareSupport
++};
++
++HRESULT AudioMeterInformation_Create(MMDevice *parent, IAudioMeterInformation **ppv)
++{
++    AudioMeter *This;
++
++    *ppv = NULL;
++    if (!(This = calloc(1, sizeof(*This)))) return E_OUTOFMEMORY;
++    This->IAudioMeterInformation_iface.lpVtbl = &meter_vtbl;
++    This->ref = 1;
++    This->device = parent;
++    IMMDevice_AddRef(&parent->IMMDevice_iface);
++    InitializeCriticalSection(&This->lock);
++
++    *ppv = &This->IAudioMeterInformation_iface;
++    return S_OK;
++}
+diff --git a/dlls/mmdevapi/devenum.c b/dlls/mmdevapi/devenum.c
+index 8440b5d..b3d91f0 100644
+--- a/dlls/mmdevapi/devenum.c
++++ b/dlls/mmdevapi/devenum.c
+@@ -772,6 +772,8 @@ static HRESULT WINAPI MMDevice_Activate(IMMDevice *iface, REFIID riid, DWORD cls
+     }else if (IsEqualIID(riid, &IID_IAudioEndpointVolume) ||
+             IsEqualIID(riid, &IID_IAudioEndpointVolumeEx))
+         hr = AudioEndpointVolume_Create(This, (IAudioEndpointVolumeEx**)ppv);
++    else if (IsEqualIID(riid, &IID_IAudioMeterInformation))
++        hr = AudioMeterInformation_Create(This, (IAudioMeterInformation**)ppv);
+     else if (IsEqualIID(riid, &IID_IAudioSessionManager)
+              || IsEqualIID(riid, &IID_IAudioSessionManager2))
+     {
+diff --git a/dlls/mmdevapi/mmdevapi_private.h b/dlls/mmdevapi/mmdevapi_private.h
+index b475d81..7be9893 100644
+--- a/dlls/mmdevapi/mmdevapi_private.h
++++ b/dlls/mmdevapi/mmdevapi_private.h
+@@ -120,6 +120,7 @@ static inline void wine_unix_call(const unsigned int code, void *args)
+ 
+ extern HRESULT AudioClient_Create(GUID *guid, IMMDevice *device, IAudioClient **out);
+ extern HRESULT AudioEndpointVolume_Create(MMDevice *parent, IAudioEndpointVolumeEx **ppv);
++extern HRESULT AudioMeterInformation_Create(MMDevice *parent, IAudioMeterInformation **ppv);
+ extern HRESULT AudioSessionManager_Create(IMMDevice *device, IAudioSessionManager2 **ppv);
+ extern HRESULT SpatialAudioClient_Create(IMMDevice *device, ISpatialAudioClient **out);
+ 
+diff --git a/include/endpointvolume.idl b/include/endpointvolume.idl
+index eaf4f8a..3c43549 100644
+--- a/include/endpointvolume.idl
++++ b/include/endpointvolume.idl
+@@ -146,3 +146,27 @@ interface IAudioEndpointVolumeEx : IAudioEndpointVolume
+         [out] FLOAT *pflVolumeIncrementdB
+     );
+ }
++
++[
++    pointer_default(unique),
++    nonextensible,
++    uuid(c02216f6-8c67-4b5b-9d00-d008e73e0064),
++    local,
++    object
++]
++interface IAudioMeterInformation : IUnknown
++{
++    HRESULT GetPeakValue(
++        [out] float *pfPeak
++    );
++    HRESULT GetMeteringChannelCount(
++        [out] UINT *pnChannelCount
++    );
++    HRESULT GetChannelsPeakValues(
++        [in] UINT32 u32ChannelCount,
++        [out, size_is(u32ChannelCount)] float *afPeakValues
++    );
++    HRESULT QueryHardwareSupport(
++        [out] DWORD *pdwHardwareSupportMask
++    );
++}
+diff --git a/dlls/mmdevapi/Makefile.in b/dlls/mmdevapi/Makefile.in
+index 26f0e8e..4016253 100644
+--- a/dlls/mmdevapi/Makefile.in
++++ b/dlls/mmdevapi/Makefile.in
+@@ -3,6 +3,7 @@ IMPORTS   = ole32 oleaut32 user32 advapi32 version
+ DELAYIMPORTS = winmm
+ 
+ SOURCES = \
++	audiometer.c \
+ 	audiosessionmanager.c \
+ 	audiovolume.c \
+ 	client.c \

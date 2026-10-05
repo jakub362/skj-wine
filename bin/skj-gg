@@ -6,6 +6,7 @@
 #   skj-gg --stop       quit GG and its Wine processes
 #   skj-gg --setup      (re)run the GG setup into the prefix
 #   skj-gg --autostart on|off   start GG when you log in
+#   skj-gg --gamesense [--remove]   point games at GG's GameSense server again (done on every start)
 #   skj-gg --remove-data        delete the GG prefix (settings, logs) - asks first
 set -uo pipefail
 
@@ -28,6 +29,8 @@ running() { pgrep -f 'SteelSeriesGGEZ\.exe' >/dev/null; }
 [ -x "$ROOT/dist/bin/wine" ] || { notify "SKJ Wine isn't installed correctly (no $ROOT/dist). Reinstall it."; exit 1; }
 
 case "${1:-}" in
+  --gamesense)
+    exec "$ROOT/bin/skj-gg-gamesense" "${@:2}" ;;
   --stop)
     wineserver -k 2>/dev/null; exit 0 ;;
   --autostart)
@@ -66,6 +69,8 @@ if [ -d "$HOME/.local/share/applications/wine/Programs/SteelSeries" ] || ls "$HO
 fi
 
 cd "$GGDIR" || exit 1
+# games live in other prefixes: keep GG's GameSense address where they look for it
+running || { "$ROOT/bin/skj-gg-gamesense" --watch >"$LOGDIR/gamesense.log" 2>&1 & }
 if [ "${1:-}" = --auto ]; then
   running && exit 0
   exec wine SteelSeriesGGEZ.exe "${GG_ARGS[@]}" -auto=true >"$LOGDIR/gg.log" 2>&1
