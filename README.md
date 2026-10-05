@@ -123,6 +123,7 @@ bin/skj-gg-icons           GG icon extraction + winemenubuilder cleanup
 bin/skj-gg-gamesense       copies GG's GameSense address into game prefixes, writes the CS2/Dota 2 GSI config
 apps/steelseries-gg/       setup.sh (prefix + all fixes), run.sh, check-mouse.sh, NOTES.md, screenshots/
 patches/wine/              Wine patches (each fixes a real Wine bug; upstreamable)
+lib/bin/wineserver         prebuilt patched wineserver (patch 0007) for wine-staging 11.19
 lib/wine/x86_64-windows/   prebuilt patched DLLs (crypt32, secur32, mmdevapi, windows.storage.applicationdata) for wine-11.19
 drivers/skjsshid/          skjsshid.sys: WDM stand-in for SteelSeries' KMDF sshid.sys (\\.\SSengine)
 tools/certinstall/         certinstall.exe: import a PFX into a Windows cert store (replaces PowerShell)
@@ -143,6 +144,7 @@ packaging/skj-wine.spec    RPM spec
 | `0002-windows.storage.applicationdata-no-package-identity` | `ApplicationData.Current` worked for unpackaged apps → `Microsoft.Data.Sqlite` crashed |
 | `0003-crypt32-pfx-key-spec-and-keyset` | `PFXImportCertStore` stored the wrong key spec and dropped `CRYPT_MACHINE_KEYSET` → NTE_NO_KEY / NTE_BAD_KEYSET |
 | `0004-secur32-machine-keyset-containers` | Schannel only looked for key containers in HKCU → TLS servers with LocalMachine certs dropped connections |
+| `0007-server-named-pipe-without-io-access-starts-disconnected` | wineserver let clients connect to a pipe instance opened without read/write access (Go's go-winio uses one only to hold the name) → the first client hung. GG Moments never got its capture service's handshake |
 | `0006-mmdevapi-audio-meter-information` | `IAudioMeterInformation` (endpoint peak meter) didn't exist → Prism's audio visualizer never sampled audio |
 | `0005-crypt32-match-ip-address-alt-names` | SSL chain policy ignored `iPAddress` subjectAltName entries → `https://127.0.0.1` with a localhost cert gave `CERT_E_CN_NO_MATCH`; GGEZ's event proxy to the GG core never connected, so Prism never lit a device |
 
@@ -168,6 +170,18 @@ for d in crypt32 secur32 mmdevapi windows.storage.applicationdata; do
   x86_64-w64-mingw32-strip dlls/$d/x86_64-windows/$d.dll
   cp dlls/$d/x86_64-windows/$d.dll ../skj-wine/lib/wine/x86_64-windows/
 done
+```
+
+`wineserver` (patch 0007) is different: it must speak wine-**staging**'s protocol, so it is built from
+a tree with the staging patches applied (no mingw needed):
+
+```bash
+git clone --depth 1 --branch v11.19 https://gitlab.winehq.org/wine/wine-staging.git
+git clone --depth 1 --branch wine-11.19 https://gitlab.winehq.org/wine/wine.git wine-st && cd wine-st
+python3 ../wine-staging/staging/patchinstall.py DESTDIR=$PWD --all --no-autoconf && tools/make_requests
+git apply ../skj-wine/patches/wine/0007-*.patch
+mkdir ../sbuild && cd ../sbuild && ../wine-st/configure --enable-win64 --without-mingw --without-x --without-freetype   # + the other --without flags above, but NOT --without-inotify
+make -j$(nproc) server/wineserver && strip server/wineserver && cp server/wineserver ../skj-wine/lib/bin/
 ```
 
 The PE DLLs must match the wine-staging version (11.19) — they talk to Wine's unix side.

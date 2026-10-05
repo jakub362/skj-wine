@@ -1,0 +1,59 @@
+From: SKJ Wine <skj-tech@hotmail.com>
+Subject: [PATCH] server: Start named pipe instances opened without I/O access disconnected.
+
+On Windows a pipe server instance created with neither FILE_READ_DATA nor
+FILE_WRITE_DATA access starts in the disconnected state, so clients cannot
+connect to it. Servers use such a handle only to reserve the pipe name; Go's
+go-winio ListenPipe does this and then serves clients on further instances.
+Wine put every new instance in the listening state, so the first client was
+connected to the name-holding handle, which nobody ever serves, and hung.
+
+Seen with SteelSeries GG: Moments (Go) starts SteelSeriesCaptureSvc.exe, which
+connects to Moments' pipe; the handshake never arrived and nothing was captured.
+---
+diff --git a/server/named_pipe.c b/server/named_pipe.c
+index 1e51158..2a03d41 100644
+--- a/server/named_pipe.c
++++ b/server/named_pipe.c
+@@ -1353,8 +1353,8 @@ static void init_pipe_end( struct pipe_end *pipe_end, struct named_pipe *pipe,
+     list_init( &pipe_end->message_queue );
+ }
+ 
+-static struct pipe_server *create_pipe_server( struct named_pipe *pipe, unsigned int options,
+-                                               unsigned int pipe_flags )
++static struct pipe_server *create_pipe_server( struct named_pipe *pipe, unsigned int access,
++                                               unsigned int options, unsigned int pipe_flags )
+ {
+     struct pipe_server *server;
+ 
+@@ -1364,11 +1364,19 @@ static struct pipe_server *create_pipe_server( struct named_pipe *pipe, unsigned
+ 
+     server->options = options;
+     init_pipe_end( &server->pipe_end, pipe, pipe_flags, pipe->insize );
+-    server->pipe_end.state = FILE_PIPE_LISTENING_STATE;
+     server->pipe_end.server_pid = get_process_id( current->process );
+     init_async_queue( &server->listen_q );
+ 
+-    list_add_tail( &pipe->listeners, &server->entry );
++    /* An instance opened without read or write access starts out disconnected:
++     * clients cannot connect to it until the server asks for a connection.
++     * Servers use this to reserve the pipe name with a handle that is never
++     * served (e.g. Go's go-winio ListenPipe). */
++    if (access & (FILE_READ_DATA | FILE_WRITE_DATA | GENERIC_READ | GENERIC_WRITE | GENERIC_ALL))
++    {
++        server->pipe_end.state = FILE_PIPE_LISTENING_STATE;
++        list_add_tail( &pipe->listeners, &server->entry );
++    }
++    else server->pipe_end.state = FILE_PIPE_DISCONNECTED_STATE;
+     if (!(server->pipe_end.fd = alloc_pseudo_fd( &pipe_server_fd_ops, &server->pipe_end.obj, options )))
+     {
+         release_object( server );
+@@ -1592,7 +1600,7 @@ DECL_HANDLER(create_named_pipe)
+         clear_error(); /* clear the name collision */
+     }
+ 
+-    server = create_pipe_server( pipe, req->options, req->flags );
++    server = create_pipe_server( pipe, req->access, req->options, req->flags );
+     if (server)
+     {
+         reply->handle = alloc_handle( current->process, server, req->access, params.attr );

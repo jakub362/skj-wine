@@ -41,6 +41,7 @@ say "Applying SKJ Wine patched DLLs"
 DLLDIR=$(dirname "$(find "$ROOT/dist" -path '*/wine/x86_64-windows/crypt32.dll' | head -1)")
 [ -d "$DLLDIR" ] || { say "Could not find Wine's x86_64-windows folder in $ROOT/dist"; exit 1; }
 cp "$ROOT"/lib/wine/x86_64-windows/*.dll "$DLLDIR/"
+install -m755 "$ROOT/lib/bin/wineserver" "$ROOT/dist/bin/wineserver"   # patched wineserver (patch 0007)
 
 # --- 3. SteelSeries HID access --------------------------------------------------
 RULE=/etc/udev/rules.d/70-skj-wine-steelseries.rules

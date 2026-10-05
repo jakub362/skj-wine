@@ -57,6 +57,7 @@ fi
 if [ -d /opt/skj-wine/dist ]; then
   dlldir=$(dirname "$(find /opt/skj-wine/dist -path '*/wine/x86_64-windows/crypt32.dll' | head -1)")
   cp /opt/skj-wine/lib/wine/x86_64-windows/*.dll "$dlldir/"
+  install -m755 /opt/skj-wine/lib/bin/wineserver /opt/skj-wine/dist/bin/wineserver
 fi
 udevadm control --reload-rules >/dev/null 2>&1 || :
 udevadm trigger --subsystem-match=hidraw >/dev/null 2>&1 || :
