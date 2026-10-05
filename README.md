@@ -14,7 +14,7 @@ scripts that do what the Windows installers can't do under Wine.
 
 | App | State |
 |---|---|
-| **SteelSeries GG** | **Works on real hardware** (Aerox 3 Wireless, Fedora 44): device detected, DPI, RGB/illumination, polling rate, sleep timer, button remaps (once saved), key remaps, battery, GPU-accelerated window (DXVK). Prism lighting (effects, presets), GameSense (Proton prefixes, CS2/Dota 2 config; checked with CS2) work. Prism's audio visualizer stays plain white with a mouse as the only Prism device (GG only samples audio when a per-key keyboard is connected). Not yet: macros, 3D aim trainer, Moments, Sonar. Details: [`apps/steelseries-gg/NOTES.md`](apps/steelseries-gg/NOTES.md) |
+| **SteelSeries GG** | **Works on real hardware** (Aerox 3 Wireless, Fedora 44): device detected, DPI, RGB/illumination, polling rate, sleep timer, button remaps (once saved), key remaps, battery, GPU-accelerated window (DXVK). Prism lighting (effects, presets), GameSense (Proton prefixes, CS2/Dota 2 config; checked with CS2) work. Prism's audio visualizer stays plain white with a mouse as the only Prism device (GG only samples audio when a per-key keyboard is connected). Aim Tools opens and installs the 3D Aim Trainer (drills not checked yet). Not yet: macros, 3D aim trainer, Moments, Sonar. Details: [`apps/steelseries-gg/NOTES.md`](apps/steelseries-gg/NOTES.md) |
 | Corsair iCUE | Not started |
 | Winamp (old app test) | Planned |
 | Adobe | Long term |
