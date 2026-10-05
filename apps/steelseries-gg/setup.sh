@@ -98,5 +98,6 @@ wineserver -w
 
 say "Installing DXVK (GPU-accelerated D3D11 for the GG window)"
 "$ROOT/tools/install-dxvk.sh" "$WINEPREFIX" || say "DXVK install failed - GG still works, just with a slower window"
+"$ROOT/tools/install-nvidia-libs.sh" "$WINEPREFIX" || say "NVIDIA encoder wrappers not installed - only Moments needs them"
 
 say "Done. Start GG with: $HERE/run.sh"

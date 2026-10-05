@@ -131,6 +131,7 @@ tools/chaintest/           chaintest.exe: print Wine's cert chain trust status
 tools/sstest/              sstest.exe: talk to \\.\SSengine like GG does
 tools/metertest/           metertest.exe: print the output device's peak meter and loopback level (checks patch 0006)
 tools/install-dxvk.sh      DXVK 3.1.1 into a prefix (--undo)
+tools/install-nvidia-libs.sh  NVENC/CUDA wrappers (nvidia-libs 1.0.2) into a prefix (--undo); needs the NVIDIA driver
 docs/re-tools/             reverse-engineering helper scripts (see its README)
 share/applications/        desktop entry template
 packaging/skj-wine.spec    RPM spec
