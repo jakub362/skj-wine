@@ -47,5 +47,6 @@ Tested: GG 120.0.0, wine-staging 11.19 + SKJ patches 0001–0004, 2026-10-04. **
 - [ ] Macros: not onboard, need skjsshid injection (same helper)
 - [x] Slow UI: Wine's D3D11→OpenGL path. Added `tools/install-dxvk.sh` (DXVK 3.1.1); GG itself doesn't disable HW acceleration (only if windowProps.json says so)
 - [x] `sshid.sys` reverse engineered and replaced by `drivers/skjsshid` (see its README)
-- [ ] Optional: implement macro playback / remap / accel via evdev+uinput in skjsshid
-- [ ] Package SKJ Wine (patched wine-staging) for Fedora.
+- [ ] `skj-inputd`: macro playback (+ live-preview suppression, accel/decel) via evdev+uinput, driven by skjsshid
+- [x] Packaged: Fedora RPM (`build-rpm.sh`), `skj-gg` launcher, menu entry, autostart
+- [ ] Prism effects/sync, GameSense games (other prefixes need coreProps.json), 3D aim trainer, Moments, Sonar — see HANDOFF.md
