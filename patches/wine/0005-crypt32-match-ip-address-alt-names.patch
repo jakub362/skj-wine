@@ -1,0 +1,67 @@
+From: SKJ Wine <skj-tech@hotmail.com>
+Subject: [PATCH] crypt32: Match IP address server names against iPAddress alt names.
+
+The SSL chain policy compared the server name only with the dNSName entries of
+the subject alternative name extension. A certificate for "localhost" with an
+iPAddress entry for 127.0.0.1 therefore failed with CERT_E_CN_NO_MATCH when the
+client connected to https://127.0.0.1 (RFC 2818 section 3.1 says an IP address
+is matched against the iPAddress entries). .NET reports that as
+RemoteCertificateNameMismatch. Seen with SteelSeries GG: GGEZ's websocket proxy
+to the GG core (wss://127.0.0.1:6329/eventing) never connected, so sub-apps got
+no core events (deviceConnected) and Prism never lit any device.
+---
+diff --git a/dlls/crypt32/chain.c b/dlls/crypt32/chain.c
+index f3c97c3..2abbcdc 100644
+--- a/dlls/crypt32/chain.c
++++ b/dlls/crypt32/chain.c
+@@ -27,6 +27,9 @@
+ #define CERT_REVOCATION_PARA_HAS_EXTRA_FIELDS
+ #include "wincrypt.h"
+ #include "wininet.h"
++#include "inaddr.h"
++#include "in6addr.h"
++#include "ip2string.h"
+ #include "wine/debug.h"
+ #include "crypt32_private.h"
+ 
+@@ -3211,7 +3214,25 @@ static BOOL match_dns_to_subject_alt_name(const CERT_EXTENSION *ext,
+      CRYPT_DECODE_ALLOC_FLAG | CRYPT_DECODE_NOCOPY_FLAG, NULL,
+      &subjectName, &size))
+     {
+-        DWORD i;
++        DWORD i, ip_len = 0;
++        const WCHAR *end;
++        IN6_ADDR ip6;
++        IN_ADDR ip4;
++        BYTE ip[16];
++
++        /* RFC 2818, section 3.1: a server name that is an IP address is
++         * matched against the iPAddress entries, not the dNSName ones.
++         */
++        if (!RtlIpv4StringToAddressW(server_name, TRUE, &end, &ip4) && !*end)
++        {
++            memcpy(ip, &ip4, 4);
++            ip_len = 4;
++        }
++        else if (!RtlIpv6StringToAddressW(server_name, &end, &ip6) && !*end)
++        {
++            memcpy(ip, &ip6, 16);
++            ip_len = 16;
++        }
+ 
+         /* RFC 5280 states that multiple instances of each name type may exist,
+          * in section 4.2.1.6:
+@@ -3223,6 +3244,13 @@ static BOOL match_dns_to_subject_alt_name(const CERT_EXTENSION *ext,
+         for (i = 0; !matches && i < subjectName->cAltEntry; i++)
+         {
+             if (subjectName->rgAltEntry[i].dwAltNameChoice ==
++             CERT_ALT_NAME_IP_ADDRESS)
++            {
++                if (ip_len && subjectName->rgAltEntry[i].IPAddress.cbData == ip_len &&
++                 !memcmp(subjectName->rgAltEntry[i].IPAddress.pbData, ip, ip_len))
++                    matches = TRUE;
++            }
++            else if (subjectName->rgAltEntry[i].dwAltNameChoice ==
+              CERT_ALT_NAME_DNS_NAME)
+             {
+                 TRACE_(chain)("dNSName: %s\n", debugstr_w(

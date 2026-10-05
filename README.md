@@ -14,7 +14,7 @@ scripts that do what the Windows installers can't do under Wine.
 
 | App | State |
 |---|---|
-| **SteelSeries GG** | **Works on real hardware** (Aerox 3 Wireless, Fedora 44): device detected, DPI, RGB/illumination, polling rate, sleep timer, button remaps (once saved), key remaps, battery, GPU-accelerated window (DXVK). Not yet: macros, Prism sync/effects, GameSense games, 3D aim trainer, Moments, Sonar. Details: [`apps/steelseries-gg/NOTES.md`](apps/steelseries-gg/NOTES.md) |
+| **SteelSeries GG** | **Works on real hardware** (Aerox 3 Wireless, Fedora 44): device detected, DPI, RGB/illumination, polling rate, sleep timer, button remaps (once saved), key remaps, battery, GPU-accelerated window (DXVK). Prism lighting (effects, presets) works since patch 0005. Not yet: macros, GameSense games, 3D aim trainer, Moments, Sonar. Details: [`apps/steelseries-gg/NOTES.md`](apps/steelseries-gg/NOTES.md) |
 | Corsair iCUE | Not started |
 | Winamp (old app test) | Planned |
 | Adobe | Long term |
@@ -104,6 +104,7 @@ wineserver -k           # kill everything in the prefix
 | Button remap sends both buttons | only in GG's *live preview*; press **Save** and the remap is written to the mouse |
 | Changing polling rate disconnects the mouse | normal (same on Windows) |
 | Macros don't play | not implemented yet (`skj-inputd`, see roadmap) |
+| Prism tab says "Device Not Found" / Prism effects don't reach the mouse | old `crypt32.dll` without patch 0005: update SKJ Wine (`./build-rpm.sh --install`). Check: with `-enableDebugLog`, `gg-errorlog.txt` must not contain `device executor for device … not found` |
 | More Wine detail | run with `WINEDEBUG=err+all,warn+hid,warn+setupapi skj-gg`; driver log: `WINEDEBUG=+debugstr` shows `skjsshid:` lines |
 
 ## Layout
@@ -136,6 +137,7 @@ packaging/skj-wine.spec    RPM spec
 | `0002-windows.storage.applicationdata-no-package-identity` | `ApplicationData.Current` worked for unpackaged apps → `Microsoft.Data.Sqlite` crashed |
 | `0003-crypt32-pfx-key-spec-and-keyset` | `PFXImportCertStore` stored the wrong key spec and dropped `CRYPT_MACHINE_KEYSET` → NTE_NO_KEY / NTE_BAD_KEYSET |
 | `0004-secur32-machine-keyset-containers` | Schannel only looked for key containers in HKCU → TLS servers with LocalMachine certs dropped connections |
+| `0005-crypt32-match-ip-address-alt-names` | SSL chain policy ignored `iPAddress` subjectAltName entries → `https://127.0.0.1` with a localhost cert gave `CERT_E_CN_NO_MATCH`; GGEZ's event proxy to the GG core never connected, so Prism never lit a device |
 
 ## Building
 

@@ -29,6 +29,7 @@ Tested: GG 120.0.0, wine-staging 11.19 + SKJ patches 0001–0004, 2026-10-04. **
 6. **Wine: Schannel only looked for key containers in HKCU** → TLS server with a LocalMachine cert dropped every connection. `patches/wine/0004`.
 7. **GGEZ didn't know about the Engine.** GGEZ starts sub-apps from its own `ggez.db`; the installer's table migration that should copy `engine`/`sonar`/`threeDAT` from `database.db` doesn't run under Wine. `setup.sh` copies the rows.
 8. **`shared/guid.json` missing** → written by `setup.sh`.
+9. **Wine: SSL chain policy ignored `iPAddress` alt names** → GGEZ's websocket proxy to the GG core (`wss://127.0.0.1:6329/eventing` and `/sock`, .NET `ClientWebSocket`, callback accepts only chain errors) failed with a name mismatch and never retried. No core event reached the sub-apps: Engine never got `deviceConnected`, never created its PrismSync executor (`device executor for device 203 not found`, ~30/s in the debug log) and Prism frames were dropped. `patches/wine/0005`.
 
 ## Known leftovers
 
@@ -49,4 +50,5 @@ Tested: GG 120.0.0, wine-staging 11.19 + SKJ patches 0001–0004, 2026-10-04. **
 - [x] `sshid.sys` reverse engineered and replaced by `drivers/skjsshid` (see its README)
 - [ ] `skj-inputd`: macro playback (+ live-preview suppression, accel/decel) via evdev+uinput, driven by skjsshid
 - [x] Packaged: Fedora RPM (`build-rpm.sh`), `skj-gg` launcher, menu entry, autostart
-- [ ] Prism effects/sync, GameSense games (other prefixes need coreProps.json), 3D aim trainer, Moments, Sonar — see HANDOFF.md
+- [x] **Prism** (2026-10-05): onboarding ("Welcome to Prism" → Get Started), canvas with the 3 Aerox zones, effects (Single color, Breathe, ColorShift) and presets apply without errors after patch 0005. Enabling Prism replaces the mouse's own illumination config (same as Windows). *Audio Visualizer* is accepted (uses Wine's PulseAudio loopback, not checked by ear); *Reflect* (screen colours) makes Prism send an error report — needs screen capture, same problem as Moments. Multi-device sync and per-game lighting not testable with one device / before GameSense
+- [ ] GameSense games (other prefixes need coreProps.json), 3D aim trainer, Moments, Sonar — see HANDOFF.md
