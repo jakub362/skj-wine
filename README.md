@@ -5,7 +5,8 @@ and other Windows-only software: SteelSeries GG, Corsair iCUE, and later Adobe a
 tools. Think "Proton GE, but for apps": one Wine with every fix, service and driver stand-in
 those apps need on Linux.
 
-Base: **WineHQ wine-staging 11.19** + the patches in `patches/wine/`, plus per-app setup
+Base: **Proton-GE** (GloriousEggroll's Proton build: Valve's Wine with DXVK, vkd3d-proton, NVIDIA
+helpers and codecs; currently GE-Proton11-7) + the patches in `patches/wine/`, plus per-app setup
 scripts that do what the Windows installers can't do under Wine.
 
 ![SteelSeries GG controlling a real Aerox 3 Wireless under SKJ Wine on Fedora](apps/steelseries-gg/screenshots/04-aerox3-real.png)
@@ -29,7 +30,7 @@ No packages and no root: SKJ Wine lives in its own folder and in your home.
 git clone https://github.com/jakub362/skj-wine.git && cd skj-wine && ./install.sh
 ```
 
-- gets **wine-staging 11.19** into `./dist` (copies `/opt/wine-staging` if you have exactly that version, otherwise downloads a portable build, ~100 MB) and puts SKJ's fixed files on top; your normal Wine is never changed
+- downloads **Proton-GE** (the release SKJ's fixes are built for, ~560 MB) into `./dist` and puts SKJ's fixed files on top; your normal Wine and Steam's Proton are never changed
 - adds the commands `skj-wine` (the window), `skj-gg`, `skj-run` to `~/.local/bin` and "SKJ Wine" + "SteelSeries GG" to the app menu
 - needs `python3-pyside6 curl sqlite openssl cabextract icoutils` (it tells you what is missing; on Fedora `sudo dnf install …`)
 
@@ -37,7 +38,7 @@ Then open **SKJ Wine** from the app menu:
 
 - **Apps** — SteelSeries GG (Install / Open / Quit, start at login) and *Your Windows programs*: "Add a program…" takes any `.exe` or `.msi` and runs it in its own prefix
 - **Experimental** — off-by-default switches (GG debug mode, with a daily log clean-up)
-- **Wine** — what's installed, stop everything, **Proton-GE** as a second Wine to pick per program (download/remove), and the one thing that needs your password: the rule that lets your user open SteelSeries devices
+- **Wine** — what's installed, stop everything, and the one thing that needs your password: the rule that lets your user open SteelSeries devices
 
 Update: `git pull && ./install.sh`. Remove: `./install.sh --remove` (programs and settings stay in `~/.local/share/skj-wine`).
 Coming from the old RPM: run `./install.sh`, then `sudo dnf remove skj-wine`, then allow device access again on the *Wine* page.
@@ -57,7 +58,6 @@ skj-gg --remove-data       delete GG's prefix (all GG settings) - asks first
 skj-wine                   the window
 skj-run NAME program.exe   run any Windows program in its own prefix NAME
 skj-run NAME --winecfg | --kill | --path
-SKJ_RUNNER=GE-Proton11-7 skj-run NAME program.exe   make a new prefix with Proton-GE instead
 ```
 
 In GG on first start: **I don't have a SteelSeries account → Skip this step for now →
@@ -107,6 +107,8 @@ wineserver -k           # kill everything in the prefix
 | A small Windows-style box says GG's update failed | GG found a newer version and its own updater can't run here. Close the box; the update is installed the next time GG starts (quit GG and open it again). The previous GG is kept in `~/.local/share/skj-wine/steelseries-gg.before-update` |
 | Macros don't play | not implemented yet (`skj-inputd`, see roadmap) |
 | Prism tab says "Device Not Found" / Prism effects don't reach the mouse | old `crypt32.dll` without patch 0005: update SKJ Wine (`git pull && ./install.sh`). Check: with `-enableDebugLog`, `gg-errorlog.txt` must not contain `device executor for device … not found` |
+| A .NET program dies with `Cannot get symbol u_charsToUChars from libicuuc` | the prefix lacks the ICU libraries: `tools/prefix-prep.sh <prefix>` |
+| GG doesn't see the mouse after changing Wine | Proton's Wine hides raw HID devices unless `PROTON_ENABLE_HIDRAW=1` is set (`skj-gg` sets it) |
 | More Wine detail | run with `WINEDEBUG=err+all,warn+hid,warn+setupapi skj-gg`; driver log: `WINEDEBUG=+debugstr` shows `skjsshid:` lines |
 
 ## Layout
@@ -122,14 +124,15 @@ bin/skj-gg-icons           GG icon extraction + winemenubuilder cleanup
 bin/skj-gg-gamesense       copies GG's GameSense address into game prefixes, writes the CS2/Dota 2 GSI config
 apps/steelseries-gg/       setup.sh (prefix + all fixes), run.sh, check-mouse.sh, NOTES.md, screenshots/
 patches/wine/              Wine patches (each fixes a real Wine bug; upstreamable)
-lib/bin/wineserver         prebuilt patched wineserver (patch 0007) for wine-staging 11.19
-lib/wine/x86_64-windows/   prebuilt patched DLLs (crypt32, secur32, mmdevapi, windows.storage.applicationdata) for wine-11.19
+lib/BASE                   the Proton-GE release the files below were built against
+lib/bin/wineserver         prebuilt patched wineserver (patch 0007)
+lib/wine/x86_64-windows/   prebuilt patched DLLs (crypt32, secur32, mmdevapi, windows.storage.applicationdata)
 drivers/skjsshid/          skjsshid.sys: WDM stand-in for SteelSeries' KMDF sshid.sys (\\.\SSengine)
 tools/certinstall/         certinstall.exe: import a PFX into a Windows cert store (replaces PowerShell)
 tools/chaintest/           chaintest.exe: print Wine's cert chain trust status
 tools/sstest/              sstest.exe: talk to \\.\SSengine like GG does
 tools/metertest/           metertest.exe: print the output device's peak meter and loopback level (checks patch 0006)
-tools/get-proton-ge.sh     download Proton-GE into ~/.local/share/skj-wine/runners (--list, --remove NAME)
+tools/prefix-prep.sh       copy the libraries that ship beside Wine (ICU; --gpu: DXVK, vkd3d-proton, nvapi) into a prefix
 tools/install-dxvk.sh      DXVK 3.1.1 into a prefix (--undo)
 tools/install-nvidia-libs.sh  NVENC/CUDA wrappers (nvidia-libs 1.0.2) into a prefix (--undo); needs the NVIDIA driver
 docs/re-tools/             reverse-engineering helper scripts (see its README)
@@ -140,51 +143,47 @@ share/applications/, icons/  desktop entries, icon
 
 | Patch | Fixes |
 |---|---|
-| `0001-crypt32-fail-ONLY_NCRYPT-requests` | `CryptAcquireCertificatePrivateKey` ignored `CRYPT_ACQUIRE_ONLY_NCRYPT_KEY_FLAG` → .NET crashed in `NCryptGetProperty` |
 | `0002-windows.storage.applicationdata-no-package-identity` | `ApplicationData.Current` worked for unpackaged apps → `Microsoft.Data.Sqlite` crashed |
-| `0003-crypt32-pfx-key-spec-and-keyset` | `PFXImportCertStore` stored the wrong key spec and dropped `CRYPT_MACHINE_KEYSET` → NTE_NO_KEY / NTE_BAD_KEYSET |
 | `0004-secur32-machine-keyset-containers` | Schannel only looked for key containers in HKCU → TLS servers with LocalMachine certs dropped connections |
-| `0007-server-named-pipe-without-io-access-starts-disconnected` | wineserver let clients connect to a pipe instance opened without read/write access (Go's go-winio uses one only to hold the name) → the first client hung. GG Moments never got its capture service's handshake |
-| `0006-mmdevapi-audio-meter-information` | `IAudioMeterInformation` (endpoint peak meter) didn't exist → Prism's audio visualizer never sampled audio |
 | `0005-crypt32-match-ip-address-alt-names` | SSL chain policy ignored `iPAddress` subjectAltName entries → `https://127.0.0.1` with a localhost cert gave `CERT_E_CN_NO_MATCH`; GGEZ's event proxy to the GG core never connected, so Prism never lit a device |
+| `0006-mmdevapi-audio-meter-information` | `IAudioMeterInformation` (endpoint peak meter) didn't exist → Prism's audio visualizer never sampled audio |
+| `0007-server-named-pipe-without-io-access-starts-disconnected` | wineserver let clients connect to a pipe instance opened without read/write access (Go's go-winio uses one only to hold the name) → the first client hung. GG Moments never got its capture service's handshake |
+
+`patches/wine/already-in-proton/` holds two more (crypt32 NCRYPT flag, PFX key spec) that plain
+wine-staging needed; Valve's Wine has its own versions.
 
 ## Building
 
-### Patched DLLs (only needed when changing a patch)
+### Patched DLLs and wineserver (only needed when changing a patch or moving to a new Proton-GE)
+
+They must be built from exactly the source Proton-GE was built from, or wineserver and the DLLs
+won't talk to the rest. What was done for GE-Proton11-7 (no root needed; mingw, autoconf and its
+Perl modules can be unpacked from Fedora RPMs with `dnf download` + `rpm2cpio | cpio -idm`):
 
 ```bash
-sudo dnf install mingw64-gcc mingw32-gcc flex bison gcc make   # Fedora
-git clone https://gitlab.winehq.org/wine/wine.git && cd wine && git checkout wine-11.19
-for p in ../skj-wine/patches/wine/*.patch; do git apply "$p"; done
-git add -A && tools/make_makefiles      # patch 0006 adds a source file
-mkdir ../wbuild && cd ../wbuild
-../wine/configure --enable-win64 --without-x --without-freetype --without-gstreamer --without-pulse \
+git clone --depth 1 --branch GE-Proton11-7 https://github.com/GloriousEggroll/proton-ge-custom.git ge && cd ge
+git submodule update --init --depth 1 wine wine-staging
+(cd wine && git fetch --depth 2 origin e813ca5771658b00875924ab88d525322e50d39f)   # a commit the recipe reverts
+# run only the Wine part of GE's recipe (the "pushd wine … popd" block), without its autoreconf line:
+{ sed -n 1,15p patches/protonprep-valve-staging.sh; sed -n '/^    pushd wine$/,/^    popd$/p' patches/protonprep-valve-staging.sh | grep -v 'autoreconf -f'; } > ../prep.sh && bash ../prep.sh
+cd wine
+dlls/winevulkan/make_vulkan -x vk.xml -X video.xml && tools/make_specfiles && autoconf -f && autoheader -f
+for p in ../../skj-wine/patches/wine/*.patch; do git apply "$p"; done
+mkdir ../../gebuild && cd ../../gebuild
+../ge/wine/configure --enable-win64 --without-x --without-freetype --without-gstreamer --without-pulse \
   --without-alsa --without-cups --without-sane --without-v4l2 --without-gphoto --without-krb5 \
   --without-netapi --without-opencl --without-pcap --without-usb --without-vulkan --without-wayland \
   --without-dbus --without-gnutls --without-sdl --without-capi --without-oss --without-udev \
-  --without-coreaudio --without-inotify --without-fontconfig
-make -j$(nproc) dlls/crypt32/x86_64-windows/crypt32.dll dlls/secur32/x86_64-windows/secur32.dll \
+  --without-coreaudio --without-fontconfig
+make -j$(nproc) server/wineserver dlls/crypt32/x86_64-windows/crypt32.dll dlls/secur32/x86_64-windows/secur32.dll \
   dlls/mmdevapi/x86_64-windows/mmdevapi.dll \
   dlls/windows.storage.applicationdata/x86_64-windows/windows.storage.applicationdata.dll
+strip server/wineserver && cp server/wineserver ../skj-wine/lib/bin/
 for d in crypt32 secur32 mmdevapi windows.storage.applicationdata; do
-  x86_64-w64-mingw32-strip dlls/$d/x86_64-windows/$d.dll
-  cp dlls/$d/x86_64-windows/$d.dll ../skj-wine/lib/wine/x86_64-windows/
+  x86_64-w64-mingw32-strip dlls/$d/x86_64-windows/$d.dll && cp dlls/$d/x86_64-windows/$d.dll ../skj-wine/lib/wine/x86_64-windows/
 done
+echo GE-Proton11-7 > ../skj-wine/lib/BASE     # and the new sha512 in install.sh
 ```
-
-`wineserver` (patch 0007) is different: it must speak wine-**staging**'s protocol, so it is built from
-a tree with the staging patches applied (no mingw needed):
-
-```bash
-git clone --depth 1 --branch v11.19 https://gitlab.winehq.org/wine/wine-staging.git
-git clone --depth 1 --branch wine-11.19 https://gitlab.winehq.org/wine/wine.git wine-st && cd wine-st
-python3 ../wine-staging/staging/patchinstall.py DESTDIR=$PWD --all --no-autoconf && tools/make_requests
-git apply ../skj-wine/patches/wine/0007-*.patch
-mkdir ../sbuild && cd ../sbuild && ../wine-st/configure --enable-win64 --without-mingw --without-x --without-freetype   # + the other --without flags above, but NOT --without-inotify
-make -j$(nproc) server/wineserver && strip server/wineserver && cp server/wineserver ../skj-wine/lib/bin/
-```
-
-The PE DLLs must match the wine-staging version (11.19) — they talk to Wine's unix side.
 
 ### Driver and tools (mingw)
 

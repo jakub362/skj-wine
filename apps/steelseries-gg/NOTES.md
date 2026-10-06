@@ -1,6 +1,6 @@
 # SteelSeries GG under SKJ Wine — findings
 
-Tested: GG 120.0.0, wine-staging 11.19 + SKJ patches 0001–0004, 2026-10-04. **Confirmed on real hardware: Aerox 3 Wireless detected, DPI changes work (Fedora 44).**
+Tested: GG 121.0.0 on Proton-GE 11-7 + SKJ patches (2026-10-06); first brought up on GG 120.0.0 with wine-staging 11.19 (2026-10-04). **Confirmed on real hardware: Aerox 3 Wireless detected, DPI changes work (Fedora 44).**
 `setup.sh` + `run.sh` verified end to end on a fresh prefix (about 2 min to set up).
 
 ![GG Engine page under SKJ Wine](screenshots/03-engine.png)

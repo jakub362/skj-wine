@@ -8,7 +8,7 @@
 #        tools/install-nvidia-libs.sh [prefix] --undo  remove
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-[ -x "$ROOT/dist/bin/wine" ] && export PATH="$ROOT/dist/bin:$PATH"
+[ -x "${SKJ_WINE_DIST:-$ROOT/dist}/bin/wine" ] && export PATH="${SKJ_WINE_DIST:-$ROOT/dist}/bin:$PATH"
 export WINEPREFIX="${1:-$HOME/.local/share/skj-wine/steelseries-gg}"
 export WINEDEBUG=-all
 VER="1.0.2"
@@ -29,7 +29,7 @@ if [ "${2:-}" = "--undo" ]; then
   wineserver -w; say "NVIDIA wrappers removed"; exit 0
 fi
 
-if ! ls /usr/lib64/libnvidia-encode.so.1 /usr/lib/x86_64-linux-gnu/libnvidia-encode.so.1 >/dev/null 2>&1; then
+if [ ! -e /usr/lib64/libnvidia-encode.so.1 ] && [ ! -e /usr/lib/x86_64-linux-gnu/libnvidia-encode.so.1 ]; then
   say "No NVIDIA encoder library (libnvidia-encode.so.1) on this system - skipping (only useful with the NVIDIA driver)"
   exit 0
 fi

@@ -9,7 +9,7 @@ set -euo pipefail
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
 ROOT="$(cd "$HERE/../.." && pwd)"
-[ -x "$ROOT/dist/bin/wine" ] && export PATH="$ROOT/dist/bin:$PATH"
+[ -x "${SKJ_WINE_DIST:-$ROOT/dist}/bin/wine" ] && export PATH="${SKJ_WINE_DIST:-$ROOT/dist}/bin:$PATH"
 export WINEPREFIX="${1:-$HOME/.local/share/skj-wine/steelseries-gg}"
 export WINEDEBUG="${WINEDEBUG:--all}"
 CACHE="${XDG_CACHE_HOME:-$HOME/.cache}/skj-wine"
@@ -21,14 +21,15 @@ say() { printf '\033[1;36m[skj-wine]\033[0m %s\n' "$*"; }
 
 say "1/9 Creating prefix at $WINEPREFIX"
 mkdir -p "$(dirname "$WINEPREFIX")"   # Wine only creates the last path component
-WINEDLLOVERRIDES="mscoree,mshtml=" wineboot -i >"$CACHE/wineboot.log" 2>&1 || true
+WINEDLLOVERRIDES="mscoree,mshtml=" wine wineboot -i >"$CACHE/wineboot.log" 2>&1 || true
 wineserver -w
+"$ROOT/tools/prefix-prep.sh" "$WINEPREFIX"   # ICU: GG's .NET server doesn't start without it
 [ -d "$WINEPREFIX/drive_c/windows" ] || { echo "Creating the Wine prefix failed, see $CACHE/wineboot.log"; tail -20 "$CACHE/wineboot.log"; exit 1; }
 
 say "2/9 Installing wine-mono $MONO_VER (needed by GG's .NET Framework helpers)"
 MONO="$CACHE/wine-mono-$MONO_VER-x86.msi"
 [ -f "$MONO" ] || curl -fL -o "$MONO" "https://dl.winehq.org/wine/wine-mono/$MONO_VER/wine-mono-$MONO_VER-x86.msi"
-wine msiexec /i "$(winepath -w "$MONO")" /qn >/dev/null 2>&1 || true
+wine msiexec /i "$(wine winepath -w "$MONO")" /qn >/dev/null 2>&1 || true
 
 say "3/9 Downloading and installing SteelSeries GG (silent)"
 GG="$CACHE/SteelSeriesGGSetup.exe"
@@ -64,7 +65,7 @@ openssl req -x509 -newkey rsa:2048 -sha512 -nodes -days 3650 \
   -keyout "$CERT/key.pem" -out "$CERT/cert.pem" -config "$CERT/ext.cnf" 2>/dev/null
 openssl pkcs12 -export -inkey "$CERT/key.pem" -in "$CERT/cert.pem" -out "$CERT/gg.pfx" \
   -passout pass: -certpbe PBE-SHA1-3DES -keypbe PBE-SHA1-3DES -macalg sha1
-TP=$(wine "$ROOT/tools/certinstall/certinstall.exe" "$(winepath -w "$CERT/gg.pfx")" "" --machine 2>/dev/null | tr -d '\r')
+TP=$(wine "$ROOT/tools/certinstall/certinstall.exe" "$(wine winepath -w "$CERT/gg.pfx")" "" --machine 2>/dev/null | tr -d '\r')
 wine reg add 'HKLM\Software\SteelSeries' /v GGCertificateThumbprint /t REG_SZ /d "$TP" /f >/dev/null 2>&1
 say "   certificate thumbprint: $TP"
 

@@ -14,11 +14,11 @@ set -uo pipefail
 # where SKJ Wine lives: /opt/skj-wine (RPM) or the folder this script is in (../)
 SELF="$(readlink -f "$0")"
 ROOT="$(cd "$(dirname "$SELF")/.." && pwd)"
-[ -x "$ROOT/dist/bin/wine" ] || { [ -x /opt/skj-wine/dist/bin/wine ] && ROOT=/opt/skj-wine; }
-export PATH="$ROOT/dist/bin:$PATH"
+export PATH="${SKJ_WINE_DIST:-$ROOT/dist}/bin:$PATH"
 export WINEPREFIX="${SKJ_GG_PREFIX:-$HOME/.local/share/skj-wine/steelseries-gg}"
 export WINEDEBUG="${WINEDEBUG:--all}"
 export WINEDLLOVERRIDES="winemenubuilder.exe=d${WINEDLLOVERRIDES:+;$WINEDLLOVERRIDES}"
+export PROTON_ENABLE_HIDRAW=1   # Proton's Wine hides raw HID devices from programs unless told otherwise
 LOGDIR="${XDG_CACHE_HOME:-$HOME/.cache}/skj-wine"; mkdir -p "$LOGDIR"
 GGDIR="$WINEPREFIX/drive_c/Program Files/SteelSeries/GG"
 AUTOSTART="$HOME/.config/autostart/skj-steelseries-gg.desktop"
@@ -29,7 +29,7 @@ GG_ARGS=(-dataPath='C:\ProgramData\SteelSeries\GG' -dbEnv=production)
 notify() { command -v notify-send >/dev/null && notify-send -a "SKJ Wine" -i input-mouse "SteelSeries GG" "$1" || true; echo "[skj-gg] $1"; }
 running() { pgrep -f 'SteelSeriesGGEZ\.exe' >/dev/null; }
 
-[ -x "$ROOT/dist/bin/wine" ] || { notify "SKJ Wine isn't installed correctly (no $ROOT/dist). Reinstall it."; exit 1; }
+[ -x "${SKJ_WINE_DIST:-$ROOT/dist}/bin/wine" ] || { notify "SKJ Wine isn't installed correctly (no Wine in ${SKJ_WINE_DIST:-$ROOT/dist}). Run install.sh."; exit 1; }
 
 case "${1:-}" in
   --gamesense)

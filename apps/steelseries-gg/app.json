@@ -2,7 +2,7 @@
   "id": "steelseries-gg",
   "name": "SteelSeries GG",
   "summary": "Mouse, keyboard and headset settings, Prism lighting, GameSense, Aim Tools.",
-  "tested": "GG 121.0.0 with an Aerox 3 Wireless, 2026-10-06",
+  "tested": "GG 121.0.0 on Proton-GE 11-7 with an Aerox 3 Wireless, 2026-10-06",
   "works": [
     "Devices are found (USB and 2.4 GHz), battery level",
     "DPI, polling rate, sleep timer, button and key remaps (after Save)",

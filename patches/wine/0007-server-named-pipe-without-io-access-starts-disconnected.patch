@@ -12,10 +12,10 @@ Seen with SteelSeries GG: Moments (Go) starts SteelSeriesCaptureSvc.exe, which
 connects to Moments' pipe; the handshake never arrived and nothing was captured.
 ---
 diff --git a/server/named_pipe.c b/server/named_pipe.c
-index 1e51158..2a03d41 100644
+index c88dc8b5..8ed19e13 100644
 --- a/server/named_pipe.c
 +++ b/server/named_pipe.c
-@@ -1353,8 +1353,8 @@ static void init_pipe_end( struct pipe_end *pipe_end, struct named_pipe *pipe,
+@@ -1447,8 +1447,8 @@ static void init_pipe_end( struct pipe_end *pipe_end, struct named_pipe *pipe,
      list_init( &pipe_end->message_queue );
  }
  
@@ -26,7 +26,7 @@ index 1e51158..2a03d41 100644
  {
      struct pipe_server *server;
  
-@@ -1364,11 +1364,19 @@ static struct pipe_server *create_pipe_server( struct named_pipe *pipe, unsigned
+@@ -1458,11 +1458,19 @@ static struct pipe_server *create_pipe_server( struct named_pipe *pipe, unsigned
  
      server->options = options;
      init_pipe_end( &server->pipe_end, pipe, pipe_flags, pipe->insize );
@@ -48,7 +48,7 @@ index 1e51158..2a03d41 100644
      if (!(server->pipe_end.fd = alloc_pseudo_fd( &pipe_server_fd_ops, &server->pipe_end.obj, options )))
      {
          release_object( server );
-@@ -1592,7 +1600,7 @@ DECL_HANDLER(create_named_pipe)
+@@ -1702,7 +1710,7 @@ DECL_HANDLER(create_named_pipe)
          clear_error(); /* clear the name collision */
      }
  
@@ -56,4 +56,4 @@ index 1e51158..2a03d41 100644
 +    server = create_pipe_server( pipe, req->access, req->options, req->flags );
      if (server)
      {
-         reply->handle = alloc_handle( current->process, server, req->access, params.attr );
+         reply->handle = alloc_handle( current->process, server, req->access, objattr->attributes );

@@ -7,7 +7,7 @@
 #        tools/install-dxvk.sh [prefix] --undo  go back to Wine's built-in d3d
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-[ -x "$ROOT/dist/bin/wine" ] && export PATH="$ROOT/dist/bin:$PATH"
+[ -x "${SKJ_WINE_DIST:-$ROOT/dist}/bin/wine" ] && export PATH="${SKJ_WINE_DIST:-$ROOT/dist}/bin:$PATH"
 export WINEPREFIX="${1:-$HOME/.local/share/skj-wine/steelseries-gg}"
 export WINEDEBUG=-all
 DXVK_VER="3.1.1"
@@ -23,7 +23,7 @@ SYS32="$WINEPREFIX/drive_c/windows/syswow64"
 if [ "${2:-}" = "--undo" ]; then
   say "Removing DXVK overrides (Wine's built-in d3d will be used again)"
   for d in $DLLS; do wine reg delete 'HKCU\Software\Wine\DllOverrides' /v "$d" /f >/dev/null 2>&1 || true; done
-  wineboot -u >/dev/null 2>&1 || true   # restores Wine's own DLL files
+  wine wineboot -u >/dev/null 2>&1 || true   # restores Wine's own DLL files
   wineserver -w
   exit 0
 fi

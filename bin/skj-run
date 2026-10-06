@@ -3,48 +3,22 @@
 #
 #   skj-run NAME /path/to/program.exe [args]   run it in the prefix NAME (made on first use)
 #   skj-run NAME --winecfg | --kill | --path    Wine settings / stop everything in it / print its folder
-#   SKJ_RUNNER=GE-ProtonX-Y skj-run NAME ...   make a NEW prefix with Proton-GE instead of SKJ's Wine
 #
 # Prefixes live in ~/.local/share/skj-wine/prefixes/NAME, logs in ~/.cache/skj-wine/NAME.log.
 set -uo pipefail
 SELF="$(readlink -f "$0")"; ROOT="$(cd "$(dirname "$SELF")/.." && pwd)"
-[ -x "$ROOT/dist/bin/wine" ] || { echo "SKJ Wine has no Wine yet - run $ROOT/install.sh" >&2; exit 1; }
-[ $# -ge 2 ] || { sed -n '2,9p' "$SELF" | sed 's/^# \{0,1\}//'; exit 1; }
+[ -x "${SKJ_WINE_DIST:-$ROOT/dist}/bin/wine" ] || { echo "SKJ Wine has no Wine yet - run $ROOT/install.sh" >&2; exit 1; }
+[ $# -ge 2 ] || { sed -n '2,8p' "$SELF" | sed 's/^# \{0,1\}//'; exit 1; }
 NAME="$1"; shift
 case "$NAME" in *[!A-Za-z0-9._-]*|"") echo "prefix name: letters, digits, . _ - only" >&2; exit 1 ;; esac
 export WINEPREFIX="${SKJ_PREFIXES:-$HOME/.local/share/skj-wine/prefixes}/$NAME"
-# Which Wine: SKJ's own (default) or a downloaded Proton-GE (tools/get-proton-ge.sh). A prefix stays
-# with the Wine it was made with (written to .skj-runner), because Wine versions don't mix in one prefix.
-RUNNER="${SKJ_RUNNER:-}"
-[ -f "$WINEPREFIX/.skj-runner" ] && RUNNER="$(cat "$WINEPREFIX/.skj-runner")"
-case "$RUNNER" in
-  ""|skj) RUNNER=skj; WINEBIN="$ROOT/dist/bin" ;;
-  *) GE="${XDG_DATA_HOME:-$HOME/.local/share}/skj-wine/runners/$RUNNER/files"; WINEBIN="$GE/bin"
-     [ -x "$WINEBIN/wine" ] || { echo "Wine \"$RUNNER\" is not installed (tools/get-proton-ge.sh)" >&2; exit 1; } ;;
-esac
-export PATH="$WINEBIN:$PATH"
-export WINEDEBUG="${WINEDEBUG:--all}"
-export WINEDLLOVERRIDES="winemenubuilder.exe=d${WINEDLLOVERRIDES:+;$WINEDLLOVERRIDES}"
+export PATH="${SKJ_WINE_DIST:-$ROOT/dist}/bin:$PATH"
 LOG="${XDG_CACHE_HOME:-$HOME/.cache}/skj-wine/$NAME.log"
 mkdir -p "$(dirname "$WINEPREFIX")" "$(dirname "$LOG")"   # Wine only creates the last folder itself
 
 if [ ! -d "$WINEPREFIX/drive_c" ] && [ "$1" != --path ] && [ "$1" != --kill ]; then
-  wineboot -i >>"$LOG" 2>&1; wineserver -w
-  echo "$RUNNER" > "$WINEPREFIX/.skj-runner"
-  if [ "$RUNNER" != skj ]; then
-    # Proton-GE ships DXVK, vkd3d-proton and NVIDIA's nvapi next to Wine; Proton copies them into
-    # the prefix when Steam starts a game, here we do it once
-    for part in dxvk vkd3d-proton nvapi; do
-      for dll in "$GE/lib/wine/$part/x86_64-windows"/*.dll; do
-        [ -f "$dll" ] || continue
-        cp "$dll" "$WINEPREFIX/drive_c/windows/system32/"
-        [ -f "$GE/lib/wine/$part/i386-windows/$(basename "$dll")" ] &&
-          cp "$GE/lib/wine/$part/i386-windows/$(basename "$dll")" "$WINEPREFIX/drive_c/windows/syswow64/"
-        wine reg add 'HKCU\Software\Wine\DllOverrides' /v "$(basename "$dll" .dll)" /d native /f >/dev/null 2>&1
-      done
-    done
-    wineserver -w
-  fi
+  wine wineboot -i >>"$LOG" 2>&1; wineserver -w
+  "$ROOT/tools/prefix-prep.sh" "$WINEPREFIX" --gpu >>"$LOG" 2>&1 || true   # ICU, DXVK, vkd3d-proton, nvapi
 fi
 
 case "$1" in

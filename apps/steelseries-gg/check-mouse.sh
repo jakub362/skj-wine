@@ -7,7 +7,7 @@ OUT="$ROOT/check-mouse-report.txt"
 LOGS="$WINEPREFIX/drive_c/ProgramData/SteelSeries/GG/Logs"
 {
   echo "=== SKJ Wine check $(date -Is)"
-  echo "--- wine: $("$ROOT/dist/bin/wine" --version 2>&1)"
+  echo "--- wine: $("${SKJ_WINE_DIST:-$ROOT/dist}/bin/wine" --version 2>&1)"
   echo "--- SteelSeries USB devices (lsusb)"
   lsusb | grep -i -E "1038|steelseries" || echo "none found"
   echo "--- hidraw nodes for vendor 1038 and permissions"
@@ -20,7 +20,7 @@ LOGS="$WINEPREFIX/drive_c/ProgramData/SteelSeries/GG/Logs"
     fi
   done
   echo "--- skjsshid driver (\\\\.\\SSengine)"
-  WINEDEBUG=-all "$ROOT/dist/bin/wine" sc query skjsshid 2>/dev/null | grep -E "STATE" || echo "skjsshid service not found"
+  WINEDEBUG=-all "${SKJ_WINE_DIST:-$ROOT/dist}/bin/wine" sc query skjsshid 2>/dev/null | grep -E "STATE" || echo "skjsshid service not found"
   echo "--- running GG processes"
   pgrep -af "SteelSeries" | grep -v -- "--type=" | grep -o -E "[A-Za-z0-9]+\.exe" | sort | uniq -c
   echo "--- Engine log lines about devices (last 60)"

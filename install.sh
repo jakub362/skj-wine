@@ -6,16 +6,16 @@
 #                           (your Windows programs and their settings are kept)
 #
 # What it does:
-#   1. gets wine-staging 11.19 into ./dist (copies an installed /opt/wine-staging if it is that
-#      version, otherwise downloads a portable build) and puts SKJ's fixed files on top
+#   1. downloads Proton-GE (the version SKJ's fixes are built for, about 560 MB) into ./dist
+#      and puts SKJ's fixed files on top
 #   2. adds the commands skj-wine (the window), skj-gg and skj-run to ~/.local/bin
 #   3. adds "SKJ Wine" and "SteelSeries GG" to the app menu
 # Apps are installed from the SKJ Wine window. Your normal Wine, if you have one, is not touched.
 set -euo pipefail
 cd "$(dirname "$(readlink -f "$0")")"; ROOT="$PWD"
-WINE_VER="11.19"
-WINE_URL="https://github.com/Kron4ek/Wine-Builds/releases/download/$WINE_VER/wine-$WINE_VER-staging-amd64-wow64.tar.xz"
-WINE_SHA="c89f69cf22f6664e3791210fa3b40c6e9e6d2e27a9aaa466f5a26d9c56664a09"
+BASE="$(cat "$ROOT/lib/BASE")"     # the Proton-GE release lib/ was built against
+BASE_URL="https://github.com/GloriousEggroll/proton-ge-custom/releases/download/$BASE/$BASE-x86_64.tar.gz"
+BASE_SHA512="7db87e9787e20c35cbdac26018431d5794626b626e4067b050684e45a88cc2ca229d7d263519eafb2e168cde5bef57611065d159d3685aaec152ccb9abe3073f"
 BIN="$HOME/.local/bin"; APPS="${XDG_DATA_HOME:-$HOME/.local/share}/applications"
 ICONS="${XDG_DATA_HOME:-$HOME/.local/share}/icons/hicolor/scalable/apps"
 CACHE="${XDG_CACHE_HOME:-$HOME/.cache}/skj-wine"
@@ -33,7 +33,8 @@ fi
 # --- what's missing on this system (nothing is installed for you) --------------------------
 missing=()
 python3 -c 'import PySide6' 2>/dev/null || missing+=("python3-pyside6")
-for c in curl sqlite3 openssl cabextract wrestool; do command -v "$c" >/dev/null || missing+=("$c"); done
+for c in curl sqlite3 openssl cabextract; do command -v "$c" >/dev/null || missing+=("$c"); done
+command -v wrestool >/dev/null || say "Note: icoutils (wrestool) is not installed - apps will show a generic icon."
 if [ ${#missing[@]} -gt 0 ]; then
   say "Missing: ${missing[*]}"
   say "On Fedora: sudo dnf install python3-pyside6 curl sqlite openssl cabextract icoutils    then run this again."
@@ -41,23 +42,22 @@ if [ ${#missing[@]} -gt 0 ]; then
 fi
 
 # --- 1. SKJ Wine's own Wine ----------------------------------------------------------------
-if [ "$("$ROOT/dist/bin/wine" --version 2>/dev/null)" != "wine-$WINE_VER (Staging)" ]; then
-  rm -rf "$ROOT/dist"
-  if [ "$(/opt/wine-staging/bin/wine --version 2>/dev/null)" = "wine-$WINE_VER (Staging)" ]; then
-    say "Copying the installed wine-staging $WINE_VER into $ROOT/dist"
-    cp -a --reflink=auto /opt/wine-staging "$ROOT/dist"
-  else
-    mkdir -p "$CACHE"; TXZ="$CACHE/$(basename "$WINE_URL")"
-    [ -f "$TXZ" ] || { say "Downloading wine-staging $WINE_VER (about 100 MB)"; curl -fL -o "$TXZ" "$WINE_URL"; }
-    echo "$WINE_SHA  $TXZ" | sha256sum -c --quiet || { rm -f "$TXZ"; say "The download is damaged, removed it - run this again."; exit 1; }
-    TMP=$(mktemp -d -p "$ROOT"); tar xf "$TXZ" -C "$TMP"; mv "$TMP"/wine-* "$ROOT/dist"; rmdir "$TMP"
-  fi
+if [ "$(cat "$ROOT/dist/.skj-base" 2>/dev/null)" != "$BASE" ]; then
+  mkdir -p "$CACHE"; TGZ="$CACHE/$BASE-x86_64.tar.gz"
+  [ -f "$TGZ" ] || { say "Downloading $BASE (about 560 MB)"; curl -fL --progress-bar -o "$TGZ" "$BASE_URL"; }
+  echo "$BASE_SHA512  $TGZ" | sha512sum -c --quiet || { rm -f "$TGZ"; say "The download is damaged, removed it - run this again."; exit 1; }
+  say "Unpacking"
+  TMP=$(mktemp -d -p "$ROOT"); tar xzf "$TGZ" -C "$TMP" --wildcards '*/files'
+  chmod -R u+w "$ROOT/dist" 2>/dev/null || true; rm -rf "$ROOT/dist"
+  mv "$TMP"/*/files "$ROOT/dist"; rm -rf "$TMP" "$TGZ"
+  chmod -R u+w "$ROOT/dist"
+  echo "$BASE" > "$ROOT/dist/.skj-base"
 fi
-DLLDIR=$(dirname "$(find "$ROOT/dist" -path '*/wine/x86_64-windows/crypt32.dll' | head -1)")
-[ -d "$DLLDIR" ] || { say "Could not find Wine's x86_64-windows folder in $ROOT/dist"; exit 1; }
-cp "$ROOT"/lib/wine/x86_64-windows/*.dll "$DLLDIR/"
-install -m755 "$ROOT/lib/bin/wineserver" "$ROOT/dist/bin/wineserver"
-say "Wine: $("$ROOT/dist/bin/wine" --version) with SKJ fixes"
+DLLDIR="$ROOT/dist/lib/wine/x86_64-windows"
+[ -f "$DLLDIR/crypt32.dll" ] || { say "Could not find Wine's x86_64-windows folder in $ROOT/dist"; exit 1; }
+cp --remove-destination "$ROOT"/lib/wine/x86_64-windows/*.dll "$DLLDIR/"
+rm -f "$ROOT/dist/bin/wineserver"; install -m755 "$ROOT/lib/bin/wineserver" "$ROOT/dist/bin/wineserver"
+say "Wine: $BASE ($("$ROOT/dist/bin/wine" --version)) with SKJ fixes"
 
 # --- 2. commands + 3. app menu -------------------------------------------------------------
 chmod +x "$ROOT"/bin/* "$ROOT"/tools/*.sh "$ROOT"/apps/*/*.sh
