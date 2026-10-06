@@ -23,6 +23,8 @@ LOGDIR="${XDG_CACHE_HOME:-$HOME/.cache}/skj-wine"; mkdir -p "$LOGDIR"
 GGDIR="$WINEPREFIX/drive_c/Program Files/SteelSeries/GG"
 AUTOSTART="$HOME/.config/autostart/skj-steelseries-gg.desktop"
 GG_ARGS=(-dataPath='C:\ProgramData\SteelSeries\GG' -dbEnv=production)
+# GG's debug mode (switch in the SKJ Wine window, Experimental): much more logging
+[ -f "${XDG_CONFIG_HOME:-$HOME/.config}/skj-wine/gg-debug" ] && GG_ARGS+=(-enableDebugLog)
 
 notify() { command -v notify-send >/dev/null && notify-send -a "SKJ Wine" -i input-mouse "SteelSeries GG" "$1" || true; echo "[skj-gg] $1"; }
 running() { pgrep -f 'SteelSeriesGGEZ\.exe' >/dev/null; }

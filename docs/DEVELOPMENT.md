@@ -44,4 +44,7 @@ Reverse-engineering helpers: `docs/re-tools/`.
 - `wineserver -k` needs `WINEPREFIX` set (or use `skj-gg --stop`), otherwise it kills nothing and the old GG keeps running.
 - New Wine code: `InitializeCriticalSection` leaves `DebugInfo` = -1 here; don't write `lock.DebugInfo->Spare[0]`.
 - A sub-app that dies shows up as `got an exit error from <name>: exit status 0xc0000005` in the Engine log; `WINEDEBUG=+seh` gives the fault address.
-
+- `pgrep -f PATTERN` also matches the shell command that contains PATTERN, so "is it running?" checks typed with the full name always say yes (and `pkill -f` kills the calling shell). Write the pattern so it can't match itself (`'SteelSeriesPris[m]'`) or look at `ps` output.
+- GG's Engine verifies the signature of the sub-apps it starts (`VerifyExecutable`), in debug mode too; a modified sub-app exe is refused.
+- Proton-GE (GE-Proton11-7 looked at 2026-10-06): its Wine is 11.0 (staging-based), runs outside Steam on Fedora, ships DXVK, vkd3d-proton, dxvk-nvapi and nvidia-libs. It has neither the AAC encoder MFT, PolicyConfig nor IAudioMeterInformation, so it would not fix Moments or Sonar by itself; switching to it means rebuilding every SKJ patch (DLLs + wineserver) against its source.
+- A portable wine-staging build (Kron4ek Wine-Builds, `wine-11.19-staging-amd64-wow64`) works with SKJ's prebuilt DLLs and wineserver on top; `install.sh` uses it when `/opt/wine-staging` isn't there.

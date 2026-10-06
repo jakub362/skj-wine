@@ -21,36 +21,26 @@ scripts that do what the Windows installers can't do under Wine.
 
 ---
 
-## Install (Fedora)
+## Install
 
-### As an RPM (recommended)
-
-```bash
-cd skj-wine && ./build-rpm.sh --install
-```
-
-- adds the WineHQ repo if missing and installs **wine-staging 11.19** (needed as the base)
-- builds `~/rpmbuild/RPMS/x86_64/skj-wine-0.1.N-1.x86_64.rpm` and installs it:
-  - `/opt/skj-wine/` — SKJ Wine (scripts, tools, drivers, patched DLLs)
-  - `/opt/skj-wine/dist/` — **private copy of wine-staging** with SKJ's DLLs on top (made in `%post`; your normal Wine is never changed)
-  - `/usr/bin/skj-gg` — the GG launcher
-  - `/usr/share/applications/skj-steelseries-gg.desktop` — app menu entry (category *Settings*)
-  - `/usr/lib/udev/rules.d/70-skj-wine-steelseries.rules` — lets your user open SteelSeries HID devices
-- turns on GG autostart at login
-- if you had the folder install (below), switches you over and keeps your GG settings
-
-Update: unpack a newer `skj-wine` and run `./build-rpm.sh --install` again.
-Remove: `sudo dnf remove skj-wine` (GG settings stay until `skj-gg --remove-data`).
-
-### From the folder (no RPM)
+No packages and no root: SKJ Wine lives in its own folder and in your home.
 
 ```bash
-./install-fedora.sh      # wine-staging 11.19, private Wine in ./dist, udev rule, GG setup
-./install-local.sh       # menu entry, ~/.local/bin/skj-gg, autostart   (--remove to undo)
+git clone https://github.com/jakub362/skj-wine.git && cd skj-wine && ./install.sh
 ```
 
-The first launch of `skj-gg` sets GG up if needed (downloads the GG installer ~430 MB and
-wine-mono ~80 MB, cached in `~/.cache/skj-wine/`; takes a few minutes).
+- gets **wine-staging 11.19** into `./dist` (copies `/opt/wine-staging` if you have exactly that version, otherwise downloads a portable build, ~100 MB) and puts SKJ's fixed files on top; your normal Wine is never changed
+- adds the commands `skj-wine` (the window), `skj-gg`, `skj-run` to `~/.local/bin` and "SKJ Wine" + "SteelSeries GG" to the app menu
+- needs `python3-pyside6 curl sqlite openssl cabextract icoutils` (it tells you what is missing; on Fedora `sudo dnf install …`)
+
+Then open **SKJ Wine** from the app menu:
+
+- **Apps** — SteelSeries GG (Install / Open / Quit, start at login) and *Your Windows programs*: "Add a program…" takes any `.exe` or `.msi` and runs it in its own prefix
+- **Experimental** — off-by-default switches (GG debug mode, with a daily log clean-up)
+- **Wine** — what's installed, stop everything, and the one thing that needs your password: the rule that lets your user open SteelSeries devices
+
+Update: `git pull && ./install.sh`. Remove: `./install.sh --remove` (programs and settings stay in `~/.local/share/skj-wine`).
+Coming from the old RPM: run `./install.sh`, then `sudo dnf remove skj-wine`, then allow device access again on the *Wine* page.
 
 ## Using it
 
@@ -63,6 +53,10 @@ skj-gg --setup             redo GG's setup in the existing prefix
 skj-gg --gamesense         point games at GG again by hand (skj-gg does it on every start)
 skj-gg --gamesense --remove  delete the GameSense files written into game folders
 skj-gg --remove-data       delete GG's prefix (all GG settings) - asks first
+
+skj-wine                   the window
+skj-run NAME program.exe   run any Windows program in its own prefix NAME
+skj-run NAME --winecfg | --kill | --path
 ```
 
 In GG on first start: **I don't have a SteelSeries account → Skip this step for now →
@@ -79,14 +73,16 @@ Continue anyway** (or log in), then **Engine** to see your devices.
 | GG UI (Electron) log | `…/GG/Logs/nw-log.txt` |
 | SKJ launcher logs | `~/.cache/skj-wine/gg.log`, `setup.log`, `wineboot.log` |
 | Download cache | `~/.cache/skj-wine/` (GG installer, wine-mono, DXVK) |
-| SKJ Wine's Wine | `/opt/skj-wine/dist/bin/wine` (RPM) or `./dist/bin/wine` (folder) |
+| SKJ Wine's Wine | `./dist/bin/wine` in the skj-wine folder |
+| Other programs' prefixes / logs | `~/.local/share/skj-wine/prefixes/NAME/`, `~/.cache/skj-wine/NAME.log` |
+| Window's list of programs, switches | `~/.config/skj-wine/` |
 | Autostart entry | `~/.config/autostart/skj-steelseries-gg.desktop` |
 | GG icon (extracted from GG) | `~/.local/share/icons/hicolor/*/apps/skj-steelseries-gg.png` |
 
 To run Wine commands in the GG prefix by hand:
 
 ```bash
-export WINEPREFIX=~/.local/share/skj-wine/steelseries-gg PATH=/opt/skj-wine/dist/bin:$PATH   # or ./dist/bin
+export WINEPREFIX=~/.local/share/skj-wine/steelseries-gg PATH=~/path/to/skj-wine/dist/bin:$PATH
 wine regedit            # registry
 wine sc query skjsshid  # our driver service
 wineserver -k           # kill everything in the prefix
@@ -98,7 +94,7 @@ wineserver -k           # kill everything in the prefix
 |---|---|
 | GG doesn't open | `skj-gg --stop`, then `skj-gg`; read `~/.cache/skj-wine/gg.log` and `gg-errorlog.txt` |
 | `wine: chdir to … No such file` / "GG install failed" | prefix parent folder missing (fixed in setup.sh); `mkdir -p ~/.local/share/skj-wine` and `skj-gg --setup` |
-| Mouse not on the Engine/Gear page | udev rule missing or not applied: `ls /usr/lib/udev/rules.d/70-skj-wine-steelseries.rules`, replug the receiver, check `ls -l /dev/hidraw*` has your user in ACL (`getfacl`). `apps/steelseries-gg/check-mouse.sh` writes a full report |
+| Mouse not on the Engine/Gear page | device rule missing: SKJ Wine window → *Wine* → "Allow", replug the receiver, check `ls -l /dev/hidraw*` has your user in ACL (`getfacl`). `apps/steelseries-gg/check-mouse.sh` writes a full report |
 | Orange "Windows Pointer Options" banner in GG | Wine's default mouse acceleration; setup.sh sets `HKCU\Control Panel\Mouse` MouseSpeed/MouseThreshold1/2 = 0 |
 | GG window slow | DXVK missing: `tools/install-dxvk.sh` (`--undo` to remove). Check: `pgrep -af "SteelSeriesGGClient.*gpu-process"` must **not** contain `--disable-gpu` |
 | Broken "SteelSeries GG" entry in the menu's **Wine** category | old winemenubuilder entry using the system Wine; `skj-gg` removes it on launch, or run `bin/skj-gg-icons` |
@@ -107,8 +103,9 @@ wineserver -k           # kill everything in the prefix
 | Changing polling rate disconnects the mouse | normal (same on Windows) |
 | A game doesn't light up the mouse (GameSense) | start GG **before** the game (the port changes on every GG start). `cat ~/.cache/skj-wine/gamesense.log` shows where the address was written; run `skj-gg --gamesense` to redo it. Prefixes outside Steam/Heroic: `SKJ_GAMESENSE_PREFIXES=/path/to/prefix:/other skj-gg` |
 | Audio Visualizer effect leaves the mouse plain white | GG limitation, not Wine: Prism only samples audio when a per-key SteelSeries keyboard is connected. Use another effect |
+| A small Windows-style box says GG's update failed | GG found a newer version and its own updater can't run here yet. Close the box; GG keeps working on the installed version |
 | Macros don't play | not implemented yet (`skj-inputd`, see roadmap) |
-| Prism tab says "Device Not Found" / Prism effects don't reach the mouse | old `crypt32.dll` without patch 0005: update SKJ Wine (`./build-rpm.sh --install`). Check: with `-enableDebugLog`, `gg-errorlog.txt` must not contain `device executor for device … not found` |
+| Prism tab says "Device Not Found" / Prism effects don't reach the mouse | old `crypt32.dll` without patch 0005: update SKJ Wine (`git pull && ./install.sh`). Check: with `-enableDebugLog`, `gg-errorlog.txt` must not contain `device executor for device … not found` |
 | More Wine detail | run with `WINEDEBUG=err+all,warn+hid,warn+setupapi skj-gg`; driver log: `WINEDEBUG=+debugstr` shows `skjsshid:` lines |
 
 ## Layout
@@ -116,9 +113,9 @@ wineserver -k           # kill everything in the prefix
 ```
 README.md                  this file
 docs/DEVELOPMENT.md        how GG is put together, open work, gotchas
-install-fedora.sh          folder install: wine-staging 11.19, ./dist, udev rule, GG setup
-install-local.sh           menu entry + autostart for the folder install
-build-rpm.sh               build/install the RPM (packaging/skj-wine.spec)
+install.sh                 the installer (no root): ./dist Wine, commands, menu entries
+bin/skj-wine               the window (Python, PySide6)
+bin/skj-run                run any Windows program in its own prefix
 bin/skj-gg                 GG launcher
 bin/skj-gg-icons           GG icon extraction + winemenubuilder cleanup
 bin/skj-gg-gamesense       copies GG's GameSense address into game prefixes, writes the CS2/Dota 2 GSI config
@@ -134,8 +131,7 @@ tools/metertest/           metertest.exe: print the output device's peak meter a
 tools/install-dxvk.sh      DXVK 3.1.1 into a prefix (--undo)
 tools/install-nvidia-libs.sh  NVENC/CUDA wrappers (nvidia-libs 1.0.2) into a prefix (--undo); needs the NVIDIA driver
 docs/re-tools/             reverse-engineering helper scripts (see its README)
-share/applications/        desktop entry template
-packaging/skj-wine.spec    RPM spec
+share/applications/, icons/  desktop entries, icon
 ```
 
 ## Wine patches
@@ -201,11 +197,6 @@ x86_64-w64-mingw32-gcc -O2 -o chaintest.exe   chaintest.c   -lcrypt32   # tools/
 x86_64-w64-mingw32-gcc -O2 -o sstest.exe      sstest.c                  # tools/sstest
 ```
 
-### RPM
-
-`./build-rpm.sh` (version = `0.1.<git commit count>`). The spec doesn't build anything; it
-packages the repo and runs `%post` to create `/opt/skj-wine/dist`.
-
 ## Adding a new app (pattern from GG)
 
 1. Install the app silently into a fresh prefix (`WINEDLLOVERRIDES=winemenubuilder.exe=d`).
@@ -213,6 +204,6 @@ packages the repo and runs `%post` to create `/opt/skj-wine/dist`.
    (PowerShell, services, certificates, drivers, migrations) and redo it in `apps/<app>/setup.sh`.
 3. Real Wine bugs → `patches/wine/` + rebuilt DLL in `lib/wine/`.
 4. Kernel drivers it needs → WDM stand-in in `drivers/` (Wine can't load KMDF).
-5. Launcher in `bin/`, desktop entry in `share/applications/`, add to the spec's `%files`.
+5. Launcher in `bin/`, desktop entry in `share/applications/`, a card in `bin/skj-wine`.
 
 Part of SKJ Tech · skj-tech.online · GitHub: `jakub362/skj-wine`

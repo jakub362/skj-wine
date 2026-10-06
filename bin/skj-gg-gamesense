@@ -12,6 +12,7 @@
 #   skj-gg-gamesense            sync once
 #   skj-gg-gamesense --watch    sync now and whenever GG restarts (new port); ends when GG quits
 #   skj-gg-gamesense --remove   delete everything this script wrote
+# While watching it also empties GG's logs once a day if that switch is on (see clean_logs).
 set -uo pipefail
 PREFIX="${WINEPREFIX:-${SKJ_GG_PREFIX:-$HOME/.local/share/skj-wine/steelseries-gg}}"
 PROPS="$PREFIX/drive_c/ProgramData/SteelSeries/SteelSeries Engine 3/coreProps.json"
@@ -64,6 +65,18 @@ sys.stdout.write(data[start:end + 4].decode().replace('%s', addr) + '\r\n')
 EOF
 }
 
+# GG's debug mode (switch in the SKJ Wine window) makes its logs grow by megabytes per hour. With
+# ~/.config/skj-wine/gg-clean-logs present they are emptied once a day while GG runs.
+clean_logs() {
+  local cfg="${XDG_CONFIG_HOME:-$HOME/.config}/skj-wine" stamp="${XDG_CACHE_HOME:-$HOME/.cache}/skj-wine/gg-logs-cleaned" f
+  [ -f "$cfg/gg-clean-logs" ] || return 0
+  [ -z "$(find "$stamp" -mmin -1440 2>/dev/null)" ] || return 0
+  for f in "$PREFIX/drive_c/ProgramData/SteelSeries/GG/Logs"/*.txt* "${XDG_CACHE_HOME:-$HOME/.cache}/skj-wine/gg.log"; do
+    [ -f "$f" ] && : > "$f"
+  done
+  touch "$stamp"; echo "[skj-gg-gamesense] GG logs emptied (daily)"
+}
+
 sync_once() {
   [ -f "$PROPS" ] || return 1
   local addr d game dir n=0
@@ -99,6 +112,7 @@ case "${1:-}" in
       if [ -n "$now" ] && [ "$now" != "$last" ] && pgrep -f 'SteelSeriesEngine\.exe' >/dev/null; then
         sync_once && last="$now"
       fi
+      clean_logs
       sleep 5
     done ;;
   *) sync_once || { echo "[skj-gg-gamesense] GG isn't set up or hasn't started yet ($PROPS)" >&2; exit 1; } ;;

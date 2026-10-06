@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=SKJ Wine
+GenericName=Windows programs
+Comment=Run Windows hardware apps and other Windows programs
+Exec=skj-wine
+Icon=skj-wine
+Categories=Utility;Settings;
+Keywords=wine;windows;exe;steelseries;
+StartupWMClass=skj-wine

@@ -1,0 +1,423 @@
+#!/usr/bin/env python3
+"""SKJ Wine - the window: supported apps, any other Windows program, experimental switches."""
+import json
+import os
+import re
+import shlex
+import subprocess
+import sys
+from pathlib import Path
+
+from PySide6.QtCore import QProcess, QProcessEnvironment, Qt, QTimer, QUrl
+from PySide6.QtGui import QDesktopServices, QFont, QIcon
+from PySide6.QtWidgets import (QApplication, QCheckBox, QDialog, QDialogButtonBox, QFileDialog, QFrame,
+                               QHBoxLayout, QInputDialog, QLabel, QListWidget, QMainWindow, QMenu, QMessageBox,
+                               QPlainTextEdit, QPushButton, QScrollArea, QStackedWidget, QToolButton, QVBoxLayout,
+                               QWidget)
+
+ROOT = Path(os.path.realpath(__file__)).parent.parent
+BIN = ROOT / "bin"
+DATA = Path(os.environ.get("XDG_DATA_HOME", Path.home() / ".local/share")) / "skj-wine"
+CONFIG = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config")) / "skj-wine"
+CACHE = Path(os.environ.get("XDG_CACHE_HOME", Path.home() / ".cache")) / "skj-wine"
+APPS_FILE = CONFIG / "apps.json"
+MENU_DIR = Path(os.environ.get("XDG_DATA_HOME", Path.home() / ".local/share")) / "applications"
+GG_PREFIX = Path(os.environ.get("SKJ_GG_PREFIX", DATA / "steelseries-gg"))
+GG_EXE = GG_PREFIX / "drive_c/Program Files/SteelSeries/GG/SteelSeriesGGEZ.exe"
+GG_AUTOSTART = Path.home() / ".config/autostart/skj-steelseries-gg.desktop"
+GG_LOGS = GG_PREFIX / "drive_c/ProgramData/SteelSeries/GG/Logs"
+DEBUG_FLAG = CONFIG / "gg-debug"          # skj-gg starts GG with -enableDebugLog while this exists
+CLEAN_FLAG = CONFIG / "gg-clean-logs"     # skj-gg-gamesense empties GG's logs daily while this exists
+UDEV_RULES = [Path("/etc/udev/rules.d/70-skj-wine-steelseries.rules"),
+              Path("/usr/lib/udev/rules.d/70-skj-wine-steelseries.rules")]
+UDEV_LINE = 'SUBSYSTEM=="hidraw", ATTRS{idVendor}=="1038", TAG+="uaccess"'
+
+
+def running(pattern):
+    return subprocess.run(["pgrep", "-f", pattern], capture_output=True).returncode == 0
+
+
+def detached(*cmd):
+    subprocess.Popen([str(c) for c in cmd], start_new_session=True,
+                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+
+def load_apps():
+    try:
+        return json.loads(APPS_FILE.read_text())
+    except (OSError, ValueError):
+        return []
+
+
+def save_apps(apps):
+    CONFIG.mkdir(parents=True, exist_ok=True)
+    APPS_FILE.write_text(json.dumps(apps, indent=1))
+
+
+def menu_entry(app):
+    return MENU_DIR / f"skj-app-{app['slug']}.desktop"
+
+
+class TaskDialog(QDialog):
+    """Runs a shell command and shows its output until it ends."""
+
+    def __init__(self, parent, title, command):
+        super().__init__(parent)
+        self.setWindowTitle(title)
+        self.resize(720, 420)
+        lay = QVBoxLayout(self)
+        self.status = QLabel(title + "…")
+        self.log = QPlainTextEdit(readOnly=True)
+        self.log.setFont(QFont("monospace", 9))
+        self.buttons = QDialogButtonBox(QDialogButtonBox.Close)
+        self.buttons.button(QDialogButtonBox.Close).setEnabled(False)
+        self.buttons.rejected.connect(self.accept)
+        for w in (self.status, self.log, self.buttons):
+            lay.addWidget(w)
+        self.proc = QProcess(self)
+        self.proc.setProcessChannelMode(QProcess.MergedChannels)
+        self.proc.readyReadStandardOutput.connect(self.read)
+        self.proc.finished.connect(self.done_)
+        self.code = None
+        self.proc.start("bash", ["-c", command])
+
+    def read(self):
+        text = bytes(self.proc.readAllStandardOutput()).decode(errors="replace")
+        self.log.appendPlainText(re.sub(r"\x1b\[[0-9;]*m", "", text).rstrip("\n"))
+
+    def done_(self, code, _status):
+        self.code = code
+        self.status.setText("Done." if code == 0 else f"Failed (exit code {code}). The text below says why.")
+        self.buttons.button(QDialogButtonBox.Close).setEnabled(True)
+
+    def closeEvent(self, event):
+        if self.code is None:
+            event.ignore()      # the task is still changing files; let it finish
+        else:
+            super().closeEvent(event)
+
+
+class Card(QFrame):
+    def __init__(self, title, subtitle=""):
+        super().__init__()
+        self.setFrameShape(QFrame.StyledPanel)
+        self.setObjectName("card")
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(16, 14, 16, 14)
+        top = QHBoxLayout()
+        text = QVBoxLayout()
+        self.title = QLabel(title)
+        f = self.title.font()
+        f.setPointSize(f.pointSize() + 2)
+        f.setBold(True)
+        self.title.setFont(f)
+        self.subtitle = QLabel(subtitle)
+        self.subtitle.setWordWrap(True)
+        self.subtitle.setObjectName("dim")
+        text.addWidget(self.title)
+        text.addWidget(self.subtitle)
+        top.addLayout(text, 1)
+        self.state = QLabel()
+        self.state.setObjectName("state")
+        top.addWidget(self.state, 0, Qt.AlignTop)
+        outer.addLayout(top)
+        self.row = QHBoxLayout()
+        outer.addLayout(self.row)
+
+    def button(self, text, slot, primary=False):
+        b = QPushButton(text)
+        if primary:
+            b.setDefault(True)
+        b.clicked.connect(slot)
+        self.row.addWidget(b)
+        return b
+
+
+class Window(QMainWindow):
+    def __init__(self):
+        super().__init__()
+        self.setWindowTitle("SKJ Wine")
+        self.resize(860, 600)
+        central = QWidget()
+        lay = QHBoxLayout(central)
+        self.nav = QListWidget()
+        self.nav.setFixedWidth(170)
+        self.pages = QStackedWidget()
+        lay.addWidget(self.nav)
+        lay.addWidget(self.pages, 1)
+        self.setCentralWidget(central)
+        for name, build in (("Apps", self.page_apps), ("Experimental", self.page_experimental),
+                            ("Wine", self.page_wine)):
+            self.nav.addItem(name)
+            self.pages.addWidget(build())
+        self.nav.currentRowChanged.connect(self.pages.setCurrentIndex)
+        self.nav.setCurrentRow(0)
+        self.timer = QTimer(self, interval=3000, timeout=self.refresh)
+        self.timer.start()
+        self.refresh()
+
+    # ---- helpers ---------------------------------------------------------------------------
+    def scroll(self, layout):
+        inner = QWidget()
+        inner.setLayout(layout)
+        layout.addStretch(1)
+        area = QScrollArea(widgetResizable=True, frameShape=QFrame.NoFrame)
+        area.setWidget(inner)
+        return area
+
+    def task(self, title, command):
+        dlg = TaskDialog(self, title, command)
+        dlg.exec()
+        self.refresh()
+        return dlg.code == 0
+
+    def have_wine(self):
+        if (ROOT / "dist/bin/wine").exists():
+            return True
+        QMessageBox.warning(self, "SKJ Wine", f"SKJ Wine's own Wine isn't set up yet.\nRun {ROOT}/install.sh first.")
+        return False
+
+    # ---- Apps ------------------------------------------------------------------------------
+    def page_apps(self):
+        self.apps_layout = QVBoxLayout()
+        self.gg = Card("SteelSeries GG", "Mouse, keyboard and headset settings, Prism lighting, GameSense, Aim Tools.")
+        self.gg_open = self.gg.button("Open", self.gg_open_clicked, primary=True)
+        self.gg_stop = self.gg.button("Quit GG", lambda: (subprocess.run([BIN / "skj-gg", "--stop"]), self.refresh()))
+        self.gg_auto = QCheckBox("Start at login")
+        self.gg_auto.clicked.connect(lambda on: subprocess.run([BIN / "skj-gg", "--autostart", "on" if on else "off"]))
+        self.gg.row.addWidget(self.gg_auto)
+        self.gg.row.addStretch(1)
+        more = QToolButton(text="More", popupMode=QToolButton.InstantPopup)
+        menu = QMenu(more)
+        menu.addAction("Point games at GG again (GameSense)",
+                       lambda: self.task("GameSense", shlex.join([str(BIN / "skj-gg"), "--gamesense"])))
+        menu.addAction("Open the log folder", lambda: QDesktopServices.openUrl(QUrl.fromLocalFile(str(GG_LOGS))))
+        menu.addAction("Redo GG's setup", self.gg_setup)
+        menu.addSeparator()
+        menu.addAction("Delete GG and all its settings…", self.gg_remove)
+        more.setMenu(menu)
+        self.gg.row.addWidget(more)
+        self.apps_layout.addWidget(self.gg)
+
+        head = QHBoxLayout()
+        label = QLabel("Your Windows programs")
+        f = label.font()
+        f.setBold(True)
+        label.setFont(f)
+        add = QPushButton("Add a program…")
+        add.clicked.connect(self.add_program)
+        head.addWidget(label)
+        head.addStretch(1)
+        head.addWidget(add)
+        self.apps_layout.addSpacing(10)
+        self.apps_layout.addLayout(head)
+        self.custom_box = QVBoxLayout()
+        self.apps_layout.addLayout(self.custom_box)
+        self.rebuild_custom()
+        return self.scroll(self.apps_layout)
+
+    def gg_open_clicked(self):
+        if not self.have_wine():
+            return
+        if not GG_EXE.exists():
+            self.gg_setup()
+            if not GG_EXE.exists():
+                return
+        detached(BIN / "skj-gg")
+
+    def gg_setup(self):
+        if self.have_wine():
+            self.task("Setting up SteelSeries GG (downloads about 500 MB, takes a few minutes)",
+                      shlex.join([str(BIN / "skj-gg"), "--stop"]) + "; "
+                      + shlex.join([str(ROOT / "apps/steelseries-gg/setup.sh"), str(GG_PREFIX)])
+                      + " && " + shlex.join([str(BIN / "skj-gg-icons"), str(GG_PREFIX)]))
+
+    def gg_remove(self):
+        if QMessageBox.question(self, "Delete GG", f"Delete {GG_PREFIX}?\n\nThis removes GG and every GG setting "
+                                "kept on this PC. Settings saved on the mouse itself stay.") == QMessageBox.Yes:
+            self.task("Deleting GG", shlex.join([str(BIN / "skj-gg"), "--stop"]) + "; sleep 3; "
+                      + shlex.join(["rm", "-rf", str(GG_PREFIX)]) + "; " + shlex.join(["rm", "-f", str(GG_AUTOSTART)]))
+
+    def rebuild_custom(self):
+        while self.custom_box.count():
+            w = self.custom_box.takeAt(0).widget()
+            if w:
+                w.deleteLater()
+        apps = load_apps()
+        if not apps:
+            empty = QLabel("Nothing here yet. \"Add a program…\" takes any .exe or .msi and gives it its own "
+                           "Windows folder, so programs can't break each other.")
+            empty.setWordWrap(True)
+            empty.setObjectName("dim")
+            self.custom_box.addWidget(empty)
+        for app in apps:
+            card = Card(app["name"], app["exe"])
+            card.button("Run", lambda _=False, a=app: detached(BIN / "skj-run", a["slug"], a["exe"]), primary=True)
+            card.button("Wine settings", lambda _=False, a=app: detached(BIN / "skj-run", a["slug"], "--winecfg"))
+            card.button("Stop", lambda _=False, a=app: subprocess.run([BIN / "skj-run", a["slug"], "--kill"]))
+            in_menu = QCheckBox("Show in app menu")
+            in_menu.setChecked(menu_entry(app).exists())
+            in_menu.clicked.connect(lambda on, a=app: self.set_menu_entry(a, on))
+            card.row.addWidget(in_menu)
+            card.row.addStretch(1)
+            card.button("Remove…", lambda _=False, a=app: self.remove_program(a))
+            self.custom_box.addWidget(card)
+
+    def add_program(self):
+        if not self.have_wine():
+            return
+        exe, _ = QFileDialog.getOpenFileName(self, "Choose a Windows program or installer", str(Path.home()),
+                                             "Windows programs (*.exe *.msi *.EXE *.MSI);;All files (*)")
+        if not exe:
+            return
+        name, ok = QInputDialog.getText(self, "Add a program", "Name:", text=Path(exe).stem)
+        if not ok or not name.strip():
+            return
+        apps = load_apps()
+        slug = base = re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-") or "app"
+        n = 2
+        while any(a["slug"] == slug for a in apps):
+            slug, n = f"{base}-{n}", n + 1
+        apps.append({"name": name.strip(), "slug": slug, "exe": exe})
+        save_apps(apps)
+        self.rebuild_custom()
+
+    def set_menu_entry(self, app, on):
+        path = menu_entry(app)
+        if on:
+            MENU_DIR.mkdir(parents=True, exist_ok=True)
+            path.write_text("[Desktop Entry]\nType=Application\n"
+                            f"Name={app['name']}\nComment=Runs in SKJ Wine\nIcon=skj-wine\nCategories=Utility;\n"
+                            f"Exec={shlex.quote(str(BIN / 'skj-run'))} {app['slug']} {shlex.quote(app['exe'])}\n")
+        else:
+            path.unlink(missing_ok=True)
+
+    def remove_program(self, app):
+        prefix = DATA / "prefixes" / app["slug"]
+        box = QMessageBox(QMessageBox.Question, "Remove program", f"Remove \"{app['name']}\" from this list?",
+                          QMessageBox.Yes | QMessageBox.Cancel, self)
+        wipe = QCheckBox(f"Also delete its Windows folder and everything installed in it\n({prefix})")
+        box.setCheckBox(wipe)
+        if box.exec() != QMessageBox.Yes:
+            return
+        self.set_menu_entry(app, False)
+        save_apps([a for a in load_apps() if a["slug"] != app["slug"]])
+        if wipe.isChecked() and prefix.is_dir():
+            self.task("Deleting", shlex.join([str(BIN / "skj-run"), app["slug"], "--kill"]) + "; sleep 2; "
+                      + shlex.join(["rm", "-rf", str(prefix)]))
+        self.rebuild_custom()
+
+    # ---- Experimental ----------------------------------------------------------------------
+    def page_experimental(self):
+        lay = QVBoxLayout()
+        note = QLabel("Switches here are off unless you turn them on. Each one says what it costs.")
+        note.setWordWrap(True)
+        lay.addWidget(note)
+        self.dbg = Card("GG: debug mode",
+                        "Starts SteelSeries GG with its own debug switch. GG then writes far more detail to its "
+                        "log files, which helps when something in GG doesn't work.\n\n"
+                        "Cost: the logs grow by megabytes per hour, and they contain more about your devices and "
+                        "games in plain text.")
+        self.dbg_switch = QCheckBox("On")
+        self.dbg_switch.clicked.connect(self.toggle_debug)
+        self.dbg.row.addWidget(self.dbg_switch)
+        # only offered while debug mode is on, which is what makes the logs grow
+        self.clean_switch = QCheckBox("Empty GG's logs once a day")
+        self.clean_switch.setToolTip("With this on, GG's log files are emptied every 24 hours while GG is running.")
+        self.clean_switch.clicked.connect(self.toggle_clean)
+        self.dbg.row.addWidget(self.clean_switch)
+        self.dbg.row.addStretch(1)
+        lay.addWidget(self.dbg)
+        return self.scroll(lay)
+
+    def toggle_debug(self, on):
+        CONFIG.mkdir(parents=True, exist_ok=True)
+        if on:
+            DEBUG_FLAG.touch()
+        else:
+            DEBUG_FLAG.unlink(missing_ok=True)
+            CLEAN_FLAG.unlink(missing_ok=True)
+        if running(r"SteelSeriesGGEZ\.exe") and QMessageBox.question(
+                self, "Restart GG?", "The change applies the next time GG starts. Restart GG now?") == QMessageBox.Yes:
+            self.task("Restarting GG", shlex.join([str(BIN / "skj-gg"), "--stop"]) + "; sleep 5")
+            detached(BIN / "skj-gg", "--auto")
+        self.refresh()
+
+    def toggle_clean(self, on):
+        CONFIG.mkdir(parents=True, exist_ok=True)
+        if on:
+            CLEAN_FLAG.touch()
+        else:
+            CLEAN_FLAG.unlink(missing_ok=True)
+
+    # ---- Wine ------------------------------------------------------------------------------
+    def page_wine(self):
+        lay = QVBoxLayout()
+        self.wine_card = Card("Wine", "")
+        self.wine_card.button("Stop every program started here", self.kill_all)
+        self.wine_card.row.addStretch(1)
+        lay.addWidget(self.wine_card)
+        self.udev = Card("SteelSeries device access", "")
+        self.udev_fix = self.udev.button("Allow (asks for your password)", self.fix_udev, primary=True)
+        self.udev.row.addStretch(1)
+        lay.addWidget(self.udev)
+        try:
+            version = subprocess.run([ROOT / "dist/bin/wine", "--version"], capture_output=True, text=True,
+                                     timeout=20).stdout.strip() or "not set up"
+        except (OSError, subprocess.SubprocessError):
+            version = "not set up - run install.sh"
+        fixes = sorted(p.stem.split("-", 1)[1].replace("-", " ") for p in (ROOT / "patches/wine").glob("*.patch"))
+        self.wine_card.subtitle.setText(f"Base: {version}, private copy in {ROOT / 'dist'}.\n"
+                                        f"SKJ fixes on top ({len(fixes)}): " + "; ".join(fixes) + ".")
+        return self.scroll(lay)
+
+    def kill_all(self):
+        cmds = [shlex.join([str(BIN / "skj-gg"), "--stop"])]
+        cmds += [shlex.join([str(BIN / "skj-run"), a["slug"], "--kill"]) for a in load_apps()]
+        self.task("Stopping", "; ".join(cmds))
+
+    def fix_udev(self):
+        script = (f"echo '{UDEV_LINE}' > {UDEV_RULES[0]} && udevadm control --reload-rules "
+                  "&& udevadm trigger --subsystem-match=hidraw")
+        self.task("Allowing access to SteelSeries devices", shlex.join(["pkexec", "sh", "-c", script]))
+
+    # ---- state -----------------------------------------------------------------------------
+    def refresh(self):
+        installed, up = GG_EXE.exists(), running(r"SteelSeriesGGEZ\.exe")
+        self.gg.state.setText("Running" if up else "Installed" if installed else "Not installed")
+        self.gg_open.setText("Open" if installed else "Install")
+        self.gg_stop.setEnabled(up)
+        self.gg_auto.setEnabled(installed)
+        self.gg_auto.setChecked(GG_AUTOSTART.exists())
+        debug = DEBUG_FLAG.exists()
+        self.dbg_switch.setChecked(debug)
+        self.dbg_switch.setEnabled(installed)
+        self.dbg.state.setText("On" if debug else "Off")
+        self.clean_switch.setVisible(debug)
+        self.clean_switch.setChecked(CLEAN_FLAG.exists())
+        ok = any(p.exists() for p in UDEV_RULES)
+        self.udev.state.setText("Allowed" if ok else "Not allowed")
+        self.udev.subtitle.setText("Your user may open SteelSeries devices, so GG can talk to them." if ok else
+                                   "GG can't see your SteelSeries devices yet. This adds one system rule that lets "
+                                   "your user open them; replug the device afterwards.")
+        self.udev_fix.setVisible(not ok)
+
+
+def main():
+    app = QApplication(sys.argv)
+    app.setApplicationName("SKJ Wine")
+    app.setDesktopFileName("skj-wine")
+    app.setWindowIcon(QIcon.fromTheme("skj-wine", QIcon(str(ROOT / "share/icons/skj-wine.svg"))))
+    app.setStyleSheet("#card { border: 1px solid palette(mid); border-radius: 8px; background: palette(base); }"
+                      "#dim { color: palette(placeholder-text); }"
+                      "#state { color: palette(placeholder-text); font-weight: bold; }"
+                      "QListWidget { border: none; background: transparent; font-size: 11pt; }"
+                      "QListWidget::item { padding: 8px 10px; border-radius: 6px; }"
+                      "QListWidget::item:selected { background: palette(highlight); color: palette(highlighted-text); }")
+    window = Window()
+    window.show()
+    sys.exit(app.exec())
+
+
+if __name__ == "__main__":
+    main()

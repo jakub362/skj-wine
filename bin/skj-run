@@ -1,0 +1,32 @@
+#!/usr/bin/env bash
+# skj-run - run any Windows program in SKJ Wine, in its own prefix.
+#
+#   skj-run NAME /path/to/program.exe [args]   run it in the prefix NAME (made on first use)
+#   skj-run NAME --winecfg | --kill | --path    Wine settings / stop everything in it / print its folder
+#
+# Prefixes live in ~/.local/share/skj-wine/prefixes/NAME, logs in ~/.cache/skj-wine/NAME.log.
+set -uo pipefail
+SELF="$(readlink -f "$0")"; ROOT="$(cd "$(dirname "$SELF")/.." && pwd)"
+[ -x "$ROOT/dist/bin/wine" ] || { echo "SKJ Wine has no Wine yet - run $ROOT/install.sh" >&2; exit 1; }
+[ $# -ge 2 ] || { sed -n '2,8p' "$SELF" | sed 's/^# \{0,1\}//'; exit 1; }
+NAME="$1"; shift
+case "$NAME" in *[!A-Za-z0-9._-]*|"") echo "prefix name: letters, digits, . _ - only" >&2; exit 1 ;; esac
+export PATH="$ROOT/dist/bin:$PATH"
+export WINEPREFIX="${SKJ_PREFIXES:-$HOME/.local/share/skj-wine/prefixes}/$NAME"
+export WINEDEBUG="${WINEDEBUG:--all}"
+export WINEDLLOVERRIDES="winemenubuilder.exe=d${WINEDLLOVERRIDES:+;$WINEDLLOVERRIDES}"
+LOG="${XDG_CACHE_HOME:-$HOME/.cache}/skj-wine/$NAME.log"
+mkdir -p "$(dirname "$WINEPREFIX")" "$(dirname "$LOG")"   # Wine only creates the last folder itself
+
+case "$1" in
+  --path) echo "$WINEPREFIX"; exit 0 ;;
+  --kill) wineserver -k 2>/dev/null; exit 0 ;;
+  --winecfg) exec wine winecfg >>"$LOG" 2>&1 ;;
+esac
+EXE="$(readlink -f "$1")"; shift
+[ -f "$EXE" ] || { echo "no such file: $EXE" >&2; exit 1; }
+cd "$(dirname "$EXE")" || exit 1
+case "${EXE,,}" in
+  *.msi) exec wine msiexec /i "$EXE" "$@" >>"$LOG" 2>&1 ;;
+  *)     exec wine "$EXE" "$@" >>"$LOG" 2>&1 ;;
+esac
