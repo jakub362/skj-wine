@@ -28,7 +28,9 @@ Reverse-engineering helpers: `docs/re-tools/`.
 2. **Sonar**: needs Windows' PolicyConfig COM class (`{870AF99C-171D-4F9E-AF0D-E63DF40C2BC9}`) and virtual audio devices (plan: PipeWire sinks).
 3. **Aim Tools**: lobby works; the Unity drills (`3D Aim Trainer.exe`) reported working by the user, performance not measured.
 4. **`skj-inputd`**: macros and live-preview button suppression (evdev grab + uinput, driven by skjsshid IOCTLs).
-5. Other apps: Winamp (plain old app test), Corsair iCUE, Adobe (long term).
+5. Other apps, in this order: Corsair iCUE (murals and system stats expected to be the hard parts), Winamp and other small/odd programs, Affinity (to prove creative apps work before paying for Adobe), then Adobe.
+
+Sonar is the biggest piece: besides PolicyConfig it uses `IAudioPolicyConfigFactory` (per-app default endpoints, two Windows-version variants), its own virtual audio devices and a native stream-routing engine (`Sonar.AudioStreamProcessing.Interop.dll`).
 
 ## Gotchas learned
 - Wine only creates the last folder of `WINEPREFIX` → `mkdir -p` the parent first.
