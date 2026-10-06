@@ -1,0 +1,22 @@
+{
+  "id": "steelseries-gg",
+  "name": "SteelSeries GG",
+  "summary": "Mouse, keyboard and headset settings, Prism lighting, GameSense, Aim Tools.",
+  "tested": "GG 121.0.0 with an Aerox 3 Wireless, 2026-10-06",
+  "works": [
+    "Devices are found (USB and 2.4 GHz), battery level",
+    "DPI, polling rate, sleep timer, button and key remaps (after Save)",
+    "RGB / illumination and Prism lighting: effects and presets",
+    "GameSense: games send their state to GG (checked with Counter-Strike 2); Proton games are pointed at GG automatically",
+    "Aim Tools and the 3D Aim Trainer",
+    "SteelSeries account login",
+    "GG updates (installed on the next GG start)"
+  ],
+  "broken": [
+    "Moments (clip recording): starts, but can't record yet",
+    "Sonar: doesn't start (error 21)",
+    "Macros, and button remaps in the live preview before Save",
+    "Prism Audio Visualizer with a mouse as the only device (stays white); the Reflect effect",
+    "Game lighting from GameSense while Prism controls the device"
+  ]
+}

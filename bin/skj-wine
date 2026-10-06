@@ -53,6 +53,14 @@ def runner_env(app):
     return {"SKJ_RUNNER": app["runner"]} if app.get("runner") else {}
 
 
+def app_info(app_id):
+    """What SKJ Wine says about a supported app: apps/<id>/app.json (name, summary, works, broken)."""
+    try:
+        return json.loads((ROOT / "apps" / app_id / "app.json").read_text())
+    except (OSError, ValueError):
+        return {}
+
+
 def load_apps():
     try:
         return json.loads(APPS_FILE.read_text())
@@ -135,6 +143,29 @@ class Card(QFrame):
         self.row = QHBoxLayout()
         outer.addLayout(self.row)
 
+    def add_status(self, info):
+        """A fold-out "what works / what doesn't" list for a supported app."""
+        if not info.get("works") and not info.get("broken"):
+            return
+        esc = lambda t: t.replace("&", "&amp;").replace("<", "&lt;")
+        html = ""
+        for title, items in (("Works", info.get("works", [])), ("Doesn't work yet", info.get("broken", []))):
+            if items:
+                html += f"<p><b>{title}</b></p><ul>" + "".join(f"<li>{esc(i)}</li>" for i in items) + "</ul>"
+        if info.get("tested"):
+            html += f"<p>Tested: {esc(info['tested'])}</p>"
+        self.status_text = QLabel(html)
+        self.status_text.setWordWrap(True)
+        self.status_text.setTextFormat(Qt.RichText)
+        self.status_text.setVisible(False)
+        self.status_toggle = QPushButton(f"What works ({len(info.get('works', []))}) and what doesn't "
+                                         f"({len(info.get('broken', []))})")
+        self.status_toggle.setCheckable(True)
+        self.status_toggle.setFlat(True)
+        self.status_toggle.toggled.connect(self.status_text.setVisible)
+        self.layout().addWidget(self.status_toggle, 0, Qt.AlignLeft)
+        self.layout().addWidget(self.status_text)
+
     def button(self, text, slot, primary=False):
         b = QPushButton(text)
         if primary:
@@ -191,7 +222,8 @@ class Window(QMainWindow):
     # ---- Apps ------------------------------------------------------------------------------
     def page_apps(self):
         self.apps_layout = QVBoxLayout()
-        self.gg = Card("SteelSeries GG", "Mouse, keyboard and headset settings, Prism lighting, GameSense, Aim Tools.")
+        info = app_info("steelseries-gg")
+        self.gg = Card(info.get("name", "SteelSeries GG"), info.get("summary", ""))
         self.gg_open = self.gg.button("Open", self.gg_open_clicked, primary=True)
         self.gg_stop = self.gg.button("Quit GG", lambda: (subprocess.run([BIN / "skj-gg", "--stop"]), self.refresh()))
         self.gg_auto = QCheckBox("Start at login")
@@ -208,6 +240,7 @@ class Window(QMainWindow):
         menu.addAction("Delete GG and all its settings…", self.gg_remove)
         more.setMenu(menu)
         self.gg.row.addWidget(more)
+        self.gg.add_status(info)
         self.apps_layout.addWidget(self.gg)
 
         head = QHBoxLayout()
