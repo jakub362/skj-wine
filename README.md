@@ -114,7 +114,8 @@ wineserver -k           # kill everything in the prefix
 ## Layout
 
 ```
-README.md, HANDOFF.md      this file; status + next steps for a new work session
+README.md                  this file
+docs/DEVELOPMENT.md        how GG is put together, open work, gotchas
 install-fedora.sh          folder install: wine-staging 11.19, ./dist, udev rule, GG setup
 install-local.sh           menu entry + autostart for the folder install
 build-rpm.sh               build/install the RPM (packaging/skj-wine.spec)
