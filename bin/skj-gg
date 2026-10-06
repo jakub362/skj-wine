@@ -66,6 +66,17 @@ if [ "${1:-}" = --setup ] || [ ! -f "$GGDIR/SteelSeriesGGEZ.exe" ]; then
   [ "${1:-}" = --setup ] && exit 0
 fi
 
+# GG downloads its own updates but can't install them here (no Windows update service):
+# install a waiting one before GG starts
+if ! running && ls "$WINEPREFIX"/drive_c/ProgramData/SteelSeries/GG/updates/*Setup.exe >/dev/null 2>&1; then
+  notify "Installing a SteelSeries GG update…"
+  if "$ROOT/apps/steelseries-gg/update.sh" "$WINEPREFIX" >"$LOGDIR/update.log" 2>&1; then
+    notify "SteelSeries GG updated."
+  else
+    notify "GG update failed - see $LOGDIR/update.log (GG still starts)"
+  fi
+fi
+
 # remove broken Wine-category GG menu entries if they exist (made by older setups)
 if [ -d "$HOME/.local/share/applications/wine/Programs/SteelSeries" ] || ls "$HOME"/.config/menus/applications-merged/wine-Programs-SteelSeries*.menu >/dev/null 2>&1; then
   "$ROOT/bin/skj-gg-icons" "$WINEPREFIX" >/dev/null 2>&1 &

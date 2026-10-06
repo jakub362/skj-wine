@@ -103,7 +103,7 @@ wineserver -k           # kill everything in the prefix
 | Changing polling rate disconnects the mouse | normal (same on Windows) |
 | A game doesn't light up the mouse (GameSense) | start GG **before** the game (the port changes on every GG start). `cat ~/.cache/skj-wine/gamesense.log` shows where the address was written; run `skj-gg --gamesense` to redo it. Prefixes outside Steam/Heroic: `SKJ_GAMESENSE_PREFIXES=/path/to/prefix:/other skj-gg` |
 | Audio Visualizer effect leaves the mouse plain white | GG limitation, not Wine: Prism only samples audio when a per-key SteelSeries keyboard is connected. Use another effect |
-| A small Windows-style box says GG's update failed | GG found a newer version and its own updater can't run here yet. Close the box; GG keeps working on the installed version |
+| A small Windows-style box says GG's update failed | GG found a newer version and its own updater can't run here. Close the box; the update is installed the next time GG starts (quit GG and open it again). The previous GG is kept in `~/.local/share/skj-wine/steelseries-gg.before-update` |
 | Macros don't play | not implemented yet (`skj-inputd`, see roadmap) |
 | Prism tab says "Device Not Found" / Prism effects don't reach the mouse | old `crypt32.dll` without patch 0005: update SKJ Wine (`git pull && ./install.sh`). Check: with `-enableDebugLog`, `gg-errorlog.txt` must not contain `device executor for device … not found` |
 | More Wine detail | run with `WINEDEBUG=err+all,warn+hid,warn+setupapi skj-gg`; driver log: `WINEDEBUG=+debugstr` shows `skjsshid:` lines |
