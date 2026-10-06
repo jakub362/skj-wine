@@ -37,7 +37,7 @@ Then open **SKJ Wine** from the app menu:
 
 - **Apps** — SteelSeries GG (Install / Open / Quit, start at login) and *Your Windows programs*: "Add a program…" takes any `.exe` or `.msi` and runs it in its own prefix
 - **Experimental** — off-by-default switches (GG debug mode, with a daily log clean-up)
-- **Wine** — what's installed, stop everything, and the one thing that needs your password: the rule that lets your user open SteelSeries devices
+- **Wine** — what's installed, stop everything, **Proton-GE** as a second Wine to pick per program (download/remove), and the one thing that needs your password: the rule that lets your user open SteelSeries devices
 
 Update: `git pull && ./install.sh`. Remove: `./install.sh --remove` (programs and settings stay in `~/.local/share/skj-wine`).
 Coming from the old RPM: run `./install.sh`, then `sudo dnf remove skj-wine`, then allow device access again on the *Wine* page.
@@ -57,6 +57,7 @@ skj-gg --remove-data       delete GG's prefix (all GG settings) - asks first
 skj-wine                   the window
 skj-run NAME program.exe   run any Windows program in its own prefix NAME
 skj-run NAME --winecfg | --kill | --path
+SKJ_RUNNER=GE-Proton11-7 skj-run NAME program.exe   make a new prefix with Proton-GE instead
 ```
 
 In GG on first start: **I don't have a SteelSeries account → Skip this step for now →
@@ -128,6 +129,7 @@ tools/certinstall/         certinstall.exe: import a PFX into a Windows cert sto
 tools/chaintest/           chaintest.exe: print Wine's cert chain trust status
 tools/sstest/              sstest.exe: talk to \\.\SSengine like GG does
 tools/metertest/           metertest.exe: print the output device's peak meter and loopback level (checks patch 0006)
+tools/get-proton-ge.sh     download Proton-GE into ~/.local/share/skj-wine/runners (--list, --remove NAME)
 tools/install-dxvk.sh      DXVK 3.1.1 into a prefix (--undo)
 tools/install-nvidia-libs.sh  NVENC/CUDA wrappers (nvidia-libs 1.0.2) into a prefix (--undo); needs the NVIDIA driver
 docs/re-tools/             reverse-engineering helper scripts (see its README)

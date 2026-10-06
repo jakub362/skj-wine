@@ -21,6 +21,7 @@ DATA = Path(os.environ.get("XDG_DATA_HOME", Path.home() / ".local/share")) / "sk
 CONFIG = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config")) / "skj-wine"
 CACHE = Path(os.environ.get("XDG_CACHE_HOME", Path.home() / ".cache")) / "skj-wine"
 APPS_FILE = CONFIG / "apps.json"
+RUNNERS = DATA / "runners"
 MENU_DIR = Path(os.environ.get("XDG_DATA_HOME", Path.home() / ".local/share")) / "applications"
 GG_PREFIX = Path(os.environ.get("SKJ_GG_PREFIX", DATA / "steelseries-gg"))
 GG_EXE = GG_PREFIX / "drive_c/Program Files/SteelSeries/GG/SteelSeriesGGEZ.exe"
@@ -37,9 +38,19 @@ def running(pattern):
     return subprocess.run(["pgrep", "-f", pattern], capture_output=True).returncode == 0
 
 
-def detached(*cmd):
-    subprocess.Popen([str(c) for c in cmd], start_new_session=True,
+def detached(*cmd, env=None):
+    subprocess.Popen([str(c) for c in cmd], start_new_session=True, env={**os.environ, **(env or {})},
                      stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+
+def runners():
+    """Extra Wines downloaded with tools/get-proton-ge.sh."""
+    return sorted(d.name for d in RUNNERS.glob("*") if (d / "files/bin/wine").exists())
+
+
+def runner_env(app):
+    # only matters the first time, when the program's prefix is made; later the prefix remembers
+    return {"SKJ_RUNNER": app["runner"]} if app.get("runner") else {}
 
 
 def load_apps():
@@ -251,9 +262,11 @@ class Window(QMainWindow):
             empty.setObjectName("dim")
             self.custom_box.addWidget(empty)
         for app in apps:
-            card = Card(app["name"], app["exe"])
-            card.button("Run", lambda _=False, a=app: detached(BIN / "skj-run", a["slug"], a["exe"]), primary=True)
-            card.button("Wine settings", lambda _=False, a=app: detached(BIN / "skj-run", a["slug"], "--winecfg"))
+            card = Card(app["name"], app["exe"] + "\nWine: " + (app.get("runner") or "SKJ Wine"))
+            card.button("Run", lambda _=False, a=app: detached(BIN / "skj-run", a["slug"], a["exe"],
+                                                               env=runner_env(a)), primary=True)
+            card.button("Wine settings", lambda _=False, a=app: detached(BIN / "skj-run", a["slug"], "--winecfg",
+                                                                         env=runner_env(a)))
             card.button("Stop", lambda _=False, a=app: subprocess.run([BIN / "skj-run", a["slug"], "--kill"]))
             in_menu = QCheckBox("Show in app menu")
             in_menu.setChecked(menu_entry(app).exists())
@@ -273,12 +286,19 @@ class Window(QMainWindow):
         name, ok = QInputDialog.getText(self, "Add a program", "Name:", text=Path(exe).stem)
         if not ok or not name.strip():
             return
+        runner = ""
+        if runners():
+            own = "SKJ Wine (hardware and vendor apps)"
+            choice, ok = QInputDialog.getItem(self, "Add a program", "Run it with:", [own] + runners(), 0, False)
+            if not ok:
+                return
+            runner = "" if choice == own else choice
         apps = load_apps()
         slug = base = re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-") or "app"
         n = 2
         while any(a["slug"] == slug for a in apps):
             slug, n = f"{base}-{n}", n + 1
-        apps.append({"name": name.strip(), "slug": slug, "exe": exe})
+        apps.append({"name": name.strip(), "slug": slug, "exe": exe, "runner": runner})
         save_apps(apps)
         self.rebuild_custom()
 
@@ -288,7 +308,8 @@ class Window(QMainWindow):
             MENU_DIR.mkdir(parents=True, exist_ok=True)
             path.write_text("[Desktop Entry]\nType=Application\n"
                             f"Name={app['name']}\nComment=Runs in SKJ Wine\nIcon=skj-wine\nCategories=Utility;\n"
-                            f"Exec={shlex.quote(str(BIN / 'skj-run'))} {app['slug']} {shlex.quote(app['exe'])}\n")
+                            "Exec=" + ("env SKJ_RUNNER=" + shlex.quote(app["runner"]) + " " if app.get("runner") else "")
+                            + f"{shlex.quote(str(BIN / 'skj-run'))} {app['slug']} {shlex.quote(app['exe'])}\n")
         else:
             path.unlink(missing_ok=True)
 
@@ -357,6 +378,12 @@ class Window(QMainWindow):
         self.wine_card.button("Stop every program started here", self.kill_all)
         self.wine_card.row.addStretch(1)
         lay.addWidget(self.wine_card)
+        self.ge = Card("Proton-GE", "")
+        self.ge.button("Download the newest", lambda: self.task(
+            "Downloading Proton-GE (about 560 MB)", shlex.join([str(ROOT / "tools/get-proton-ge.sh")])))
+        self.ge_remove = self.ge.button("Remove…", self.remove_runner)
+        self.ge.row.addStretch(1)
+        lay.addWidget(self.ge)
         self.udev = Card("SteelSeries device access", "")
         self.udev_fix = self.udev.button("Allow (asks for your password)", self.fix_udev, primary=True)
         self.udev.row.addStretch(1)
@@ -370,6 +397,17 @@ class Window(QMainWindow):
         self.wine_card.subtitle.setText(f"Base: {version}, private copy in {ROOT / 'dist'}.\n"
                                         f"SKJ fixes on top ({len(fixes)}): " + "; ".join(fixes) + ".")
         return self.scroll(lay)
+
+    def remove_runner(self):
+        used = {a.get("runner") for a in load_apps()}
+        name, ok = QInputDialog.getItem(self, "Remove Proton-GE", "Which one?", runners(), 0, False)
+        if not ok:
+            return
+        if name in used:
+            QMessageBox.warning(self, "Still in use", f"A program in your list runs with {name}. Remove that "
+                                "program first.")
+            return
+        self.task("Removing " + name, shlex.join([str(ROOT / "tools/get-proton-ge.sh"), "--remove", name]))
 
     def kill_all(self):
         cmds = [shlex.join([str(BIN / "skj-gg"), "--stop"])]
@@ -395,6 +433,13 @@ class Window(QMainWindow):
         self.dbg.state.setText("On" if debug else "Off")
         self.clean_switch.setVisible(debug)
         self.clean_switch.setChecked(CLEAN_FLAG.exists())
+        have = runners()
+        self.ge.state.setText(", ".join(have) if have else "Not installed")
+        self.ge.subtitle.setText("GloriousEggroll's Proton build as a second Wine to pick when you add a program. "
+                                 "Good for games and media-heavy programs: DXVK, vkd3d-proton, NVIDIA helpers and "
+                                 "codecs come with it. It doesn't have SKJ's fixes, so SteelSeries GG and other "
+                                 "hardware apps stay on SKJ's own Wine.")
+        self.ge_remove.setEnabled(bool(have))
         ok = any(p.exists() for p in UDEV_RULES)
         self.udev.state.setText("Allowed" if ok else "Not allowed")
         self.udev.subtitle.setText("Your user may open SteelSeries devices, so GG can talk to them." if ok else
