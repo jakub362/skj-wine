@@ -7,8 +7,8 @@ helper registers GG's shortcuts with the desktop (xdg-desktop-portal "GlobalShor
 Hyprland) and, when one is pressed, tells GG "shortcut N was pressed" the same way its own key hook
 does: the event EVENT_KEYBOARD_SHORTCUT on GG's local event channel.
 
-While Moments is switched on in GG it also keeps Moments' desktop recording running, so there is
-something to save (see keep_recording).
+Switching Moments on in GG also starts its desktop recording once, so there is something to save
+(see start_recording); stop it in GG and it stays stopped until Alt+S or Moments off/on.
 
 The first time, the desktop asks you to confirm the keys; change them later in its own settings
 (KDE: System Settings > Keyboard > Shortcuts > SKJ Wine).
@@ -93,16 +93,37 @@ def moments(path, post=False):
         return json.load(reply)
 
 
-def keep_recording():
-    """Moments on = record the desktop. On Windows Moments starts recording when it sees a game start;
-    here games run outside GG's Wine, so it never would and Alt+S would have nothing to save."""
+ARMED = [True]      # may we start desktop recording by ourselves?
+
+
+def start_recording():
+    """Switching Moments on starts recording the desktop - once. On Windows Moments starts recording
+    when it sees a game start; here games run outside GG's Wine, so it never would and Alt+S would have
+    nothing to save. If you then stop the recording in GG it stays stopped: we only start it again
+    after Moments was switched off and on, or when you press Alt+S."""
     try:
         status = moments("/moments/status")["MomentsStatus"]
-        if status.get("status") == "enabled" and not status.get("desktop_mode_running"):
-            moments("/moments/desktopMode/start", post=True)
-            log("Moments is on: desktop recording started")
     except (OSError, ValueError, KeyError):
-        pass
+        return
+    if status.get("status") == "disabled":
+        ARMED[0] = True
+    elif status.get("desktop_mode_running") or status.get("status") == "running":
+        ARMED[0] = False
+    elif status.get("status") == "enabled" and ARMED[0]:
+        ARMED[0] = False
+        try:
+            moments("/moments/desktopMode/start", post=True)
+            log("Moments was switched on: desktop recording started")
+        except (OSError, ValueError):
+            pass
+
+
+def recording():
+    try:
+        status = moments("/moments/status")["MomentsStatus"]
+        return status.get("status"), bool(status.get("desktop_mode_running") or status.get("status") == "running")
+    except (OSError, ValueError, KeyError):
+        return None, False
 
 
 def notify(text):
@@ -188,6 +209,18 @@ def main():
         handle, name, _timestamp, _options = params.unpack()
         if handle != session or not name.startswith("gg-"):
             return
+        if name == "gg-0":
+            state, running = recording()
+            if state == "disabled":
+                notify("Moments is switched off - turn it on in GG first.")
+                return
+            if state == "enabled" and not running:      # stopped earlier: Alt+S starts it again
+                try:
+                    moments("/moments/desktopMode/start", post=True)
+                    notify("Recording started. Press Alt+S again to save what happened.")
+                except (OSError, ValueError):
+                    notify("Could not start recording.")
+                return
         before = clip_count() if name == "gg-0" else -1
         try:
             press(int(name[3:]))
@@ -201,7 +234,7 @@ def main():
                 if after > before >= 0:
                     notify("Clip saved.")
                 elif after >= 0:
-                    notify("No clip saved - Moments isn't recording (turn Moments on in GG, then wait a few seconds).")
+                    notify("No clip saved (recording has only just started?).")
                 return False
             GLib.timeout_add_seconds(6, result)
 
@@ -212,7 +245,7 @@ def main():
         if not gg_running():
             loop.quit()
             return False
-        keep_recording()
+        start_recording()
         return True
     GLib.timeout_add_seconds(5, tick)
     try:
