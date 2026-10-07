@@ -85,6 +85,8 @@ fi
 cd "$GGDIR" || exit 1
 # games live in other prefixes: keep GG's GameSense address where they look for it
 running || { "$ROOT/bin/skj-gg-gamesense" --watch >"$LOGDIR/gamesense.log" 2>&1 & }
+# Moments records the screen: the helper hands it over when asked (see bin/skj-screencast)
+running || { "$ROOT/bin/skj-screencast" --prefix "$WINEPREFIX" >"$LOGDIR/screencast.log" 2>&1 & }
 if [ "${1:-}" = --auto ]; then
   running && exit 0
   exec wine SteelSeriesGGEZ.exe "${GG_ARGS[@]}" -auto=true >"$LOGDIR/gg.log" 2>&1

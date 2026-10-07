@@ -27,6 +27,8 @@ case "$1" in
   --winecfg) exec wine winecfg >>"$LOG" 2>&1 ;;
 esac
 EXE="$(readlink -f "$1")"; shift
+# screen recorders: hands the screen over when a program asks (see bin/skj-screencast); it ends with the prefix
+"$ROOT/bin/skj-screencast" --prefix "$WINEPREFIX" >>"$LOG" 2>&1 &
 [ -f "$EXE" ] || { echo "no such file: $EXE" >&2; exit 1; }
 cd "$(dirname "$EXE")" || exit 1
 case "${EXE,,}" in

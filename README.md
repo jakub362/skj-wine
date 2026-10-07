@@ -135,6 +135,10 @@ tools/metertest/           metertest.exe: print the output device's peak meter a
 tools/prefix-prep.sh       copy the libraries that ship beside Wine (ICU; --gpu: DXVK, vkd3d-proton, nvapi) into a prefix
 tools/install-dxvk.sh      DXVK 3.1.1 into a prefix (--undo)
 tools/install-nvidia-libs.sh  NVENC/CUDA wrappers (nvidia-libs 1.0.2) into a prefix (--undo); needs the NVIDIA driver
+bin/skj-screencast         gives Windows recorders the screen (desktop portal + PipeWire); started by skj-gg / skj-run
+libs/mfaacenc              AAC audio encoder for Media Foundation (Windows has one, Wine doesn't) -> lib/prefix/system32
+libs/skjdxgi               dxgi.dll that adds DXGI desktop duplication in front of DXVK's -> lib/prefix/dxgi
+tools/mfttest, duptest     small test programs for the two above
 docs/re-tools/             reverse-engineering helper scripts (see its README)
 share/applications/, icons/  desktop entries, icon
 ```

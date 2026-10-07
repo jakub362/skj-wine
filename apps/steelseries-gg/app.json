@@ -10,10 +10,11 @@
     "GameSense: games send their state to GG (checked with Counter-Strike 2); Proton games are pointed at GG automatically",
     "Aim Tools and the 3D Aim Trainer",
     "SteelSeries account login",
-    "GG updates (installed on the next GG start)"
+    "GG updates (installed on the next GG start)",
+    "Screen capture for recorders (your desktop asks once which screen to share)"
   ],
   "broken": [
-    "Moments (clip recording): starts, but can't record yet",
+    "Moments (clip recording): records screen and sound now, but saving the clip to a file still fails; the clip hotkey isn't hooked up either",
     "Sonar: doesn't start (error 21)",
     "Macros, and button remaps in the live preview before Save",
     "Prism Audio Visualizer with a mouse as the only device (stays white); the Reflect effect",

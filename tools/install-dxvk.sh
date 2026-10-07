@@ -42,5 +42,10 @@ for d in $DLLS; do
   wine reg add 'HKCU\Software\Wine\DllOverrides' /v "$d" /t REG_SZ /d native /f >/dev/null 2>&1
 done
 rm -rf "$TMP"
+# screen recording: SKJ's dxgi.dll goes in front of DXVK's (64-bit; see libs/skjdxgi)
+if [ -f "$ROOT/lib/prefix/dxgi/dxgi.dll" ]; then
+  mv -f "$SYS64/dxgi.dll" "$SYS64/dxvk_dxgi.dll"
+  cp "$ROOT/lib/prefix/dxgi/dxgi.dll" "$SYS64/dxgi.dll"
+fi
 wineserver -w
 say "DXVK installed. Undo with: $0 \"$WINEPREFIX\" --undo"

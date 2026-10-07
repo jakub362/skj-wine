@@ -1,0 +1,291 @@
+#!/usr/bin/env python3
+"""skj-screencast - gives Windows programs under SKJ Wine the picture of your screen.
+
+Windows recorders (SteelSeries GG Moments, anything using DXGI desktop duplication) ask Windows for
+the screen. On Linux only the desktop itself may hand that out: this helper asks it through the
+normal screen-sharing door (xdg-desktop-portal + PipeWire - the same one browsers and OBS use) and
+copies the frames into shared memory, where SKJ's dxgi.dll (libs/skjdxgi) picks them up.
+
+Nothing is captured until a Windows program asks. The first time, your desktop shows its "share
+screen" dialog; the choice is remembered (~/.config/skj-wine/screencast-token).
+
+    skj-screencast                  run until stopped
+    skj-screencast --prefix DIR     run while the Wine prefix DIR is in use (what skj-gg/skj-run do)
+    skj-screencast --forget         forget the remembered screen choice
+
+Shared folder: $XDG_RUNTIME_DIR/skj-wine/screen (with --prefix linked into it as C:\\ProgramData\\skj-wine\\screen)
+    ready           exists while this helper runs
+    request         written about once a second by a program that wants frames: "WIDTH HEIGHT"
+    frame-WxH       64-byte header + BGRA pixels, top row first:
+                    u32 magic "SKJS", u32 version 1, u32 width, u32 height,
+                    u32 seq (odd while a frame is being written), u32 active, u64 time in ns
+"""
+import argparse, fcntl, mmap, os, signal, struct, subprocess, sys, time
+
+import gi
+gi.require_version("Gst", "1.0")
+from gi.repository import Gio, GLib, Gst
+try:
+    from gi.repository import GLibUnix
+    signal_add = GLibUnix.signal_add
+except (ImportError, AttributeError):
+    signal_add = GLib.unix_signal_add
+
+RUN = os.path.join(os.environ.get("XDG_RUNTIME_DIR") or "/tmp/skj-wine-%d" % os.getuid(), "skj-wine", "screen")
+TOKEN = os.path.join(os.environ.get("XDG_CONFIG_HOME") or os.path.expanduser("~/.config"), "skj-wine", "screencast-token")
+HEADER = 64
+PORTAL = ("org.freedesktop.portal.Desktop", "/org/freedesktop/portal/desktop")
+
+
+def log(text):
+    print("[skj-screencast] " + text, flush=True)
+
+
+class Portal:
+    """One screen-sharing session with the desktop."""
+
+    def __init__(self):
+        self.bus = Gio.bus_get_sync(Gio.BusType.SESSION, None)
+        self.sender = self.bus.get_unique_name()[1:].replace(".", "_")
+        self.count = 0
+        self.session = None
+
+    def _request(self, method, make_args, timeout):
+        """Call a portal method and wait for its Response signal."""
+        self.count += 1
+        token = "skj%d_%d" % (os.getpid(), self.count)
+        path = "/org/freedesktop/portal/desktop/request/%s/%s" % (self.sender, token)
+        answer = []
+        sub = self.bus.signal_subscribe(PORTAL[0], "org.freedesktop.portal.Request", "Response", path, None,
+                                        Gio.DBusSignalFlags.NONE, lambda *a: answer.append(a[5].unpack()))
+        try:
+            self.bus.call_sync(PORTAL[0], PORTAL[1], "org.freedesktop.portal.ScreenCast", method, make_args(token),
+                               None, Gio.DBusCallFlags.NONE, 10000, None)
+            end = time.monotonic() + timeout
+            context = GLib.MainContext.default()
+            while not answer and time.monotonic() < end:
+                if not context.iteration(False):
+                    time.sleep(0.02)
+        finally:
+            self.bus.signal_unsubscribe(sub)
+        if not answer:
+            raise RuntimeError("%s: no answer from the desktop" % method)
+        code, values = answer[0]
+        if code:
+            raise RuntimeError("%s: %s" % (method, "cancelled" if code == 1 else "refused"))
+        return values
+
+    def start(self):
+        """Returns (pipewire fd, node id, (width, height) or None). Shows the desktop's dialog when needed."""
+        v = GLib.Variant
+        values = self._request("CreateSession", lambda t: v("(a{sv})", ({
+            "handle_token": v("s", t), "session_handle_token": v("s", "skj%d" % os.getpid())},)), 10)
+        self.session = values["session_handle"]
+        cursor = self.bus.call_sync(PORTAL[0], PORTAL[1], "org.freedesktop.DBus.Properties", "Get",
+                                    v("(ss)", ("org.freedesktop.portal.ScreenCast", "AvailableCursorModes")),
+                                    None, Gio.DBusCallFlags.NONE, 5000, None).unpack()[0]
+        options = {"types": v("u", 1), "multiple": v("b", False), "persist_mode": v("u", 2),
+                   "cursor_mode": v("u", 2 if cursor & 2 else 1)}        # 2 = pointer drawn into the picture
+        try:
+            options["restore_token"] = v("s", open(TOKEN).read().strip())
+        except OSError:
+            pass
+        self._request("SelectSources", lambda t: v("(oa{sv})", (self.session, dict(options, handle_token=v("s", t)))), 10)
+        values = self._request("Start", lambda t: v("(osa{sv})", (self.session, "", {"handle_token": v("s", t)})), 300)
+        if values.get("restore_token"):
+            os.makedirs(os.path.dirname(TOKEN), exist_ok=True)
+            with open(os.open(TOKEN, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600), "w") as f:
+                f.write(values["restore_token"])
+        node, props = values["streams"][0]
+        result, fds = self.bus.call_with_unix_fd_list_sync(PORTAL[0], PORTAL[1], "org.freedesktop.portal.ScreenCast",
+                                                           "OpenPipeWireRemote", v("(oa{sv})", (self.session, {})),
+                                                           None, Gio.DBusCallFlags.NONE, 10000, None, None)
+        return fds.get(result.unpack()[0]), node, props.get("size")
+
+    def close(self):
+        if self.session:
+            try:
+                self.bus.call_sync(PORTAL[0], self.session, "org.freedesktop.portal.Session", "Close", None, None,
+                                   Gio.DBusCallFlags.NONE, 5000, None)
+            except GLib.Error:
+                pass
+        self.session = None
+
+
+class Stream:
+    """The running capture: PipeWire -> BGRA at the wanted size -> shared memory."""
+
+    def __init__(self, width, height):
+        self.size = (width, height)
+        self.bytes = width * height * 4
+        self.seq = 0
+        self.failed = False
+        self.frames = 0
+        path = os.path.join(RUN, "frame-%dx%d" % self.size)
+        if not os.path.exists(path) or os.path.getsize(path) != HEADER + self.bytes:
+            # readers only map a file of the right size, so it has to appear complete
+            with open(path + ".new", "wb") as f:
+                f.truncate(HEADER + self.bytes)
+            os.rename(path + ".new", path)
+        self.file = open(path, "r+b")
+        self.map = mmap.mmap(self.file.fileno(), HEADER + self.bytes)
+        self.seq = struct.unpack_from("<I", self.map, 16)[0] & ~1
+        struct.pack_into("<4sIIIII", self.map, 0, b"SKJS", 1, width, height, self.seq, 0)
+
+        self.portal = Portal()
+        try:
+            self.fd, node, native = self.portal.start()
+        except Exception:
+            self.portal.close()
+            raise
+        log("capturing %s as %dx%d" % ("%dx%d" % tuple(native) if native else "the screen", width, height))
+        self.pipeline = Gst.parse_launch(
+            "pipewiresrc fd=%d path=%d keepalive-time=500 ! videorate drop-only=true max-rate=60 ! videoconvert ! videoscale ! "
+            "video/x-raw,format=BGRA,width=%d,height=%d ! "
+            "appsink name=sink max-buffers=1 drop=true sync=false emit-signals=true" % (self.fd, node, width, height))
+        self.pipeline.get_by_name("sink").connect("new-sample", self.on_sample)
+        bus = self.pipeline.get_bus()
+        bus.add_signal_watch()
+        bus.connect("message::error", self.on_error)
+        bus.connect("message::eos", self.on_error)
+        self.pipeline.set_state(Gst.State.PLAYING)
+
+    def on_sample(self, sink):
+        sample = sink.emit("pull-sample")
+        buffer = sample.get_buffer()
+        ok, info = buffer.map(Gst.MapFlags.READ)
+        if ok:
+            if info.size >= self.bytes:
+                self.seq += 1                                   # odd: readers keep off
+                struct.pack_into("<I", self.map, 16, self.seq)
+                self.map[HEADER:HEADER + self.bytes] = info.data[:self.bytes]
+                self.seq += 1
+                struct.pack_into("<IIQ", self.map, 16, self.seq, 1, time.monotonic_ns())
+                self.frames += 1
+            buffer.unmap(info)
+        return Gst.FlowReturn.OK
+
+    def on_error(self, bus, message):
+        if message.type == Gst.MessageType.ERROR:
+            error, detail = message.parse_error()
+            log("capture stopped: %s (%s)" % (error.message, (detail or "").strip().splitlines()[-1:]))
+        self.failed = True
+
+    def stop(self):
+        self.pipeline.set_state(Gst.State.NULL)
+        struct.pack_into("<I", self.map, 20, 0)
+        self.portal.close()
+        try:
+            os.close(self.fd)
+        except OSError:
+            pass
+        self.map.close()
+        self.file.close()
+        log("stopped after %d frames" % self.frames)
+
+
+def wanted():
+    """(width, height) if a program asked for frames in the last 3 seconds."""
+    path = os.path.join(RUN, "request")
+    try:
+        if time.time() - os.path.getmtime(path) > 3:
+            return None
+        width, height = (int(x) for x in open(path).read().split()[:2])
+    except (OSError, ValueError):
+        return None
+    return (width, height) if 16 <= width <= 16384 and 16 <= height <= 16384 else None
+
+
+def prefix_in_use(prefix):
+    """Is a wineserver running for this prefix? (its socket lives in a folder named after the prefix's inode)"""
+    try:
+        st = os.stat(prefix)
+    except OSError:
+        return False
+    name = "server-%x-%x" % (st.st_dev, st.st_ino)
+    for base in (os.path.join(os.environ.get("XDG_RUNTIME_DIR", ""), "wine"), "/tmp/.wine-%d" % os.getuid()):
+        sock = os.path.join(base, name, "socket")
+        if os.path.exists(sock):
+            return True
+    return False
+
+
+def main():
+    parser = argparse.ArgumentParser(description="Screen pictures for Windows programs under SKJ Wine")
+    parser.add_argument("--prefix", help="stop when this Wine prefix is no longer in use")
+    parser.add_argument("--forget", action="store_true", help="forget the remembered screen choice")
+    args = parser.parse_args()
+    if args.forget:
+        try:
+            os.remove(TOKEN)
+        except OSError:
+            pass
+        return 0
+
+    os.makedirs(RUN, mode=0o700, exist_ok=True)
+    if args.prefix:
+        # Windows programs find the folder as C:\ProgramData\skj-wine\screen
+        link = os.path.join(args.prefix, "drive_c", "ProgramData", "skj-wine", "screen")
+        if os.path.isdir(os.path.join(args.prefix, "drive_c")) and os.path.realpath(link) != os.path.realpath(RUN):
+            os.makedirs(os.path.dirname(link), exist_ok=True)
+            if os.path.islink(link):
+                os.remove(link)
+            os.symlink(RUN, link)
+    lock = open(os.path.join(RUN, "lock"), "w")
+    state = {"stream": None, "retry": 0.0, "seen": False, "start": time.monotonic(), "locked": False}
+    ready = os.path.join(RUN, "ready")
+    loop = GLib.MainLoop()
+    Gst.init(None)
+
+    def tick():
+        if args.prefix:
+            used = prefix_in_use(args.prefix)
+            state["seen"] = state["seen"] or used
+            if (state["seen"] and not used) or (not state["seen"] and time.monotonic() - state["start"] > 900):
+                loop.quit()
+                return False
+        if not state["locked"]:                 # one helper serves everybody; the others wait their turn
+            try:
+                fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except OSError:
+                return True
+            state["locked"] = True
+            with open(ready, "w") as f:
+                f.write("%d\n" % os.getpid())
+        want, stream = wanted(), state["stream"]
+        if stream and (stream.failed or want != stream.size):
+            if stream.failed:
+                state["retry"] = time.monotonic() + 2
+            stream.stop()
+            state["stream"] = stream = None
+        if want and not stream and time.monotonic() >= state["retry"]:
+            if not os.path.exists(TOKEN):
+                subprocess.Popen(["notify-send", "-a", "SKJ Wine", "-i", "video-display", "Screen recording",
+                                  "A Windows program wants to record your screen. Pick the screen in the dialog - "
+                                  "you are only asked once."], stderr=subprocess.DEVNULL)
+            try:
+                state["stream"] = Stream(*want)
+            except Exception as e:
+                log("could not start: %s" % e)
+                state["retry"] = time.monotonic() + 15
+        return True
+
+    GLib.timeout_add(300, tick)
+    for sig in (signal.SIGTERM, signal.SIGINT, signal.SIGHUP):
+        signal_add(GLib.PRIORITY_DEFAULT, sig, lambda: loop.quit() or False)
+    try:
+        loop.run()
+    except KeyboardInterrupt:
+        pass
+    if state["stream"]:
+        state["stream"].stop()
+    if state["locked"]:
+        try:
+            os.remove(ready)
+        except OSError:
+            pass
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
