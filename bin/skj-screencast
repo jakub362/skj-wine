@@ -34,6 +34,10 @@ except (ImportError, AttributeError):
 RUN = os.path.join(os.environ.get("XDG_RUNTIME_DIR") or "/tmp/skj-wine-%d" % os.getuid(), "skj-wine", "screen")
 TOKEN = os.path.join(os.environ.get("XDG_CONFIG_HOME") or os.path.expanduser("~/.config"), "skj-wine", "screencast-token")
 HEADER = 64
+# Keep capturing this long after the last request: recorders open the screen, close it and open it again
+# when they start (Moments: preview picture, then the recording), and every stop/start makes the desktop's
+# "screen is being recorded" icon blink.
+GRACE = 8
 PORTAL = ("org.freedesktop.portal.Desktop", "/org/freedesktop/portal/desktop")
 
 
@@ -185,10 +189,10 @@ class Stream:
 
 
 def wanted():
-    """(width, height) if a program asked for frames in the last 3 seconds."""
+    """(width, height) if a program asked for frames in the last GRACE seconds."""
     path = os.path.join(RUN, "request")
     try:
-        if time.time() - os.path.getmtime(path) > 3:
+        if time.time() - os.path.getmtime(path) > GRACE:
             return None
         width, height = (int(x) for x in open(path).read().split()[:2])
     except (OSError, ValueError):
