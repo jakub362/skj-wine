@@ -8,7 +8,7 @@
 # What it does:
 #   1. downloads Proton-GE (the version SKJ's fixes are built for, about 560 MB) into ./dist
 #      and puts SKJ's fixed files on top
-#   2. adds the commands skj-wine (the window), skj-gg and skj-run to ~/.local/bin
+#   2. adds the commands skj-wine (the window), skj-gg, skj-icue and skj-run to ~/.local/bin
 #   3. adds "SKJ Wine" and "SteelSeries GG" to the app menu
 # Apps are installed from the SKJ Wine window. Your normal Wine, if you have one, is not touched.
 set -euo pipefail
@@ -23,7 +23,7 @@ AUTOSTART="$HOME/.config/autostart/skj-steelseries-gg.desktop"
 say() { printf '\033[1;35m[SKJ Wine]\033[0m %s\n' "$*"; }
 
 if [ "${1:-}" = --remove ]; then
-  rm -f "$BIN/skj-wine" "$BIN/skj-gg" "$BIN/skj-run" "$APPS/skj-wine.desktop" "$APPS/skj-steelseries-gg.desktop" \
+  rm -f "$BIN/skj-wine" "$BIN/skj-gg" "$BIN/skj-run" "$BIN/skj-icue" "$APPS/skj-wine.desktop" "$APPS/skj-steelseries-gg.desktop" \
         "$ICONS/skj-wine.svg" "$AUTOSTART"
   say "Removed the menu entries, commands and autostart. Programs and settings are still in ~/.local/share/skj-wine;"
   say "this folder ($ROOT) can be deleted too."
@@ -62,7 +62,7 @@ say "Wine: $BASE ($("$ROOT/dist/bin/wine" --version)) with SKJ fixes"
 # --- 2. commands + 3. app menu -------------------------------------------------------------
 chmod +x "$ROOT"/bin/* "$ROOT"/tools/*.sh "$ROOT"/apps/*/*.sh
 mkdir -p "$BIN" "$APPS" "$ICONS"
-for c in skj-wine skj-gg skj-run; do ln -sf "$ROOT/bin/$c" "$BIN/$c"; done
+for c in skj-wine skj-gg skj-run skj-icue; do ln -sf "$ROOT/bin/$c" "$BIN/$c"; done
 cp "$ROOT/share/icons/skj-wine.svg" "$ICONS/skj-wine.svg"
 sed "s|^Exec=skj-wine|Exec=$BIN/skj-wine|" "$ROOT/share/applications/skj-wine.desktop" > "$APPS/skj-wine.desktop"
 sed "s|^Exec=skj-gg|Exec=$BIN/skj-gg|" "$ROOT/share/applications/skj-steelseries-gg.desktop" > "$APPS/skj-steelseries-gg.desktop"

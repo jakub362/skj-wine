@@ -1,0 +1,27 @@
+#!/usr/bin/env bash
+# skj-icue - start Corsair iCUE under SKJ Wine.
+#
+#   skj-icue            open iCUE (first run: installs it)
+#   skj-icue --stop     quit iCUE and its Wine processes
+#   skj-icue --setup    (re)run the setup; also picks up newly plugged-in Corsair devices
+set -uo pipefail
+SELF="$(readlink -f "$0")"; ROOT="$(cd "$(dirname "$SELF")/.." && pwd)"
+export PATH="${SKJ_WINE_DIST:-$ROOT/dist}/bin:$PATH"
+export WINEPREFIX="${SKJ_ICUE_PREFIX:-$HOME/.local/share/skj-wine/corsair-icue}"
+export WINEDEBUG="${WINEDEBUG:--all}" WINEDLLOVERRIDES="winemenubuilder.exe=d${WINEDLLOVERRIDES:+;$WINEDLLOVERRIDES}"
+export PROTON_ENABLE_HIDRAW=1   # Proton's Wine hides raw HID devices from programs unless told otherwise
+LOGDIR="${XDG_CACHE_HOME:-$HOME/.cache}/skj-wine"; mkdir -p "$LOGDIR"
+DIR="$WINEPREFIX/drive_c/Program Files/Corsair/Corsair iCUE5 Software"
+notify() { command -v notify-send >/dev/null && notify-send -a "SKJ Wine" -i input-keyboard "Corsair iCUE" "$1" || true; echo "[skj-icue] $1"; }
+
+case "${1:-}" in
+  --stop) wineserver -k 2>/dev/null; exit 0 ;;
+esac
+if [ "${1:-}" = --setup ] || [ ! -f "$DIR/iCUE.exe" ]; then
+  notify "Setting up Corsair iCUE (downloads about 450 MB)…"
+  "$ROOT/apps/corsair-icue/setup.sh" "$WINEPREFIX" >"$LOGDIR/icue-setup.log" 2>&1 || { notify "Setup failed - see $LOGDIR/icue-setup.log"; exit 1; }
+  notify "Corsair iCUE is ready."
+  [ "${1:-}" = --setup ] && exit 0
+fi
+cd "$DIR" || exit 1
+exec wine "iCUE Launcher.exe" >"$LOGDIR/icue.log" 2>&1

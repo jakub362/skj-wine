@@ -1,0 +1,15 @@
+{
+  "id": "corsair-icue",
+  "name": "Corsair iCUE",
+  "summary": "Corsair keyboards, mice and headsets: lighting, key assignments, profiles.",
+  "tested": "iCUE 5.52.93 on Proton-GE 11-7 with a K70 CORE RGB TKL Wireless, 2026-10-07 (early: installs and opens, the keyboard itself is not checked yet)",
+  "works": [
+    "Installs without Corsair's installer (which can't run under Wine)",
+    "The iCUE window opens"
+  ],
+  "broken": [
+    "Whether iCUE finds the keyboard: not checked yet (needs device access allowed on the Wine page)",
+    "Corsair's background services (system sensors, CPU info) don't start: no temperatures or fan data",
+    "Murals and system statistics are not expected to work"
+  ]
+}

@@ -137,6 +137,8 @@ tools/install-dxvk.sh      DXVK 3.1.1 into a prefix (--undo)
 tools/install-nvidia-libs.sh  NVENC/CUDA wrappers (nvidia-libs 1.0.2) into a prefix (--undo); needs the NVIDIA driver
 bin/skj-screencast         gives Windows recorders the screen (desktop portal + PipeWire); started by skj-gg / skj-run
 bin/skj-gg-hotkeys         GG's Alt+S (save a clip) as a desktop-wide key (portal GlobalShortcuts); started by skj-gg
+bin/skj-icue               Corsair iCUE launcher; apps/corsair-icue/setup.sh installs it through Corsair's package manager
+tools/winlist              lists the windows open in a prefix and their text (reads error boxes without a screen)
 libs/mfaacenc              AAC audio encoder for Media Foundation (Windows has one, Wine doesn't) -> lib/prefix/system32
 libs/skjdxgi               dxgi.dll that adds DXGI desktop duplication in front of DXVK's -> lib/prefix/dxgi
 tools/mfttest, duptest     small test programs for the two above

@@ -28,9 +28,24 @@ GG_AUTOSTART = Path.home() / ".config/autostart/skj-steelseries-gg.desktop"
 GG_LOGS = GG_PREFIX / "drive_c/ProgramData/SteelSeries/GG/Logs"
 DEBUG_FLAG = CONFIG / "gg-debug"          # skj-gg starts GG with -enableDebugLog while this exists
 CLEAN_FLAG = CONFIG / "gg-clean-logs"     # skj-gg-gamesense empties GG's logs daily while this exists
-UDEV_RULES = [Path("/etc/udev/rules.d/70-skj-wine-steelseries.rules"),
-              Path("/usr/lib/udev/rules.d/70-skj-wine-steelseries.rules")]
-UDEV_LINE = 'SUBSYSTEM=="hidraw", ATTRS{idVendor}=="1038", TAG+="uaccess"'
+ICUE_PREFIX = Path(os.environ.get("SKJ_ICUE_PREFIX", DATA / "corsair-icue"))
+ICUE_EXE = ICUE_PREFIX / "drive_c/Program Files/Corsair/Corsair iCUE5 Software/iCUE.exe"
+# one system rule lets the logged-in user open these vendors' devices (USB vendor id: name)
+UDEV_RULE = Path("/etc/udev/rules.d/70-skj-wine-devices.rules")
+UDEV_OLD = [Path("/etc/udev/rules.d/70-skj-wine-steelseries.rules"),
+            Path("/usr/lib/udev/rules.d/70-skj-wine-steelseries.rules")]
+VENDORS = {"1038": "SteelSeries", "1b1c": "Corsair"}
+
+
+def udev_allowed():
+    """Vendor ids that a rule of ours already covers."""
+    text = ""
+    for path in [UDEV_RULE] + UDEV_OLD:
+        try:
+            text += path.read_text()
+        except OSError:
+            pass
+    return {v for v in VENDORS if f'ATTRS{{idVendor}}=="{v}"' in text}
 
 
 def running(pattern):
@@ -232,6 +247,21 @@ class Window(QMainWindow):
         self.gg.add_status(info)
         self.apps_layout.addWidget(self.gg)
 
+        info = app_info("corsair-icue")
+        self.icue = Card(info.get("name", "Corsair iCUE"), info.get("summary", ""))
+        self.icue_open = self.icue.button("Open", self.icue_open_clicked, primary=True)
+        self.icue_stop = self.icue.button("Quit iCUE", lambda: (subprocess.run([BIN / "skj-icue", "--stop"]), self.refresh()))
+        self.icue.row.addStretch(1)
+        more = QToolButton(text="More", popupMode=QToolButton.InstantPopup)
+        menu = QMenu(more)
+        menu.addAction("Redo the setup (also adds newly plugged-in Corsair devices)", self.icue_setup)
+        menu.addSeparator()
+        menu.addAction("Delete iCUE and all its settings…", self.icue_remove)
+        more.setMenu(menu)
+        self.icue.row.addWidget(more)
+        self.icue.add_status(info)
+        self.apps_layout.addWidget(self.icue)
+
         head = QHBoxLayout()
         label = QLabel("Your Windows programs")
         f = label.font()
@@ -270,6 +300,27 @@ class Window(QMainWindow):
                                 "kept on this PC. Settings saved on the mouse itself stay.") == QMessageBox.Yes:
             self.task("Deleting GG", shlex.join([str(BIN / "skj-gg"), "--stop"]) + "; sleep 3; "
                       + shlex.join(["rm", "-rf", str(GG_PREFIX)]) + "; " + shlex.join(["rm", "-f", str(GG_AUTOSTART)]))
+
+    def icue_open_clicked(self):
+        if not self.have_wine():
+            return
+        if not ICUE_EXE.exists():
+            self.icue_setup()
+            if not ICUE_EXE.exists():
+                return
+        detached(BIN / "skj-icue")
+
+    def icue_setup(self):
+        if self.have_wine():
+            self.task("Setting up Corsair iCUE (downloads about 450 MB, takes a few minutes)",
+                      shlex.join([str(BIN / "skj-icue"), "--stop"]) + "; "
+                      + shlex.join([str(ROOT / "apps/corsair-icue/setup.sh"), str(ICUE_PREFIX)]))
+
+    def icue_remove(self):
+        if QMessageBox.question(self, "Delete iCUE", f"Delete {ICUE_PREFIX}?\n\nThis removes iCUE and every iCUE "
+                                "setting kept on this PC. Settings saved on the devices themselves stay.") == QMessageBox.Yes:
+            self.task("Deleting iCUE", shlex.join([str(BIN / "skj-icue"), "--stop"]) + "; sleep 3; "
+                      + shlex.join(["rm", "-rf", str(ICUE_PREFIX)]))
 
     def rebuild_custom(self):
         while self.custom_box.count():
@@ -390,7 +441,7 @@ class Window(QMainWindow):
         self.wine_card.button("Stop every program started here", self.kill_all)
         self.wine_card.row.addStretch(1)
         lay.addWidget(self.wine_card)
-        self.udev = Card("SteelSeries device access", "")
+        self.udev = Card("Device access", "")
         self.udev_fix = self.udev.button("Allow (asks for your password)", self.fix_udev, primary=True)
         self.udev.row.addStretch(1)
         lay.addWidget(self.udev)
@@ -410,14 +461,16 @@ class Window(QMainWindow):
         return self.scroll(lay)
 
     def kill_all(self):
-        cmds = [shlex.join([str(BIN / "skj-gg"), "--stop"])]
+        cmds = [shlex.join([str(BIN / "skj-gg"), "--stop"]), shlex.join([str(BIN / "skj-icue"), "--stop"])]
         cmds += [shlex.join([str(BIN / "skj-run"), a["slug"], "--kill"]) for a in load_apps()]
         self.task("Stopping", "; ".join(cmds))
 
     def fix_udev(self):
-        script = (f"echo '{UDEV_LINE}' > {UDEV_RULES[0]} && udevadm control --reload-rules "
+        lines = "\\n".join(f'SUBSYSTEM=="hidraw", ATTRS{{idVendor}}=="{v}", TAG+="uaccess"' for v in VENDORS)
+        script = (f"printf '{lines}\\n' > {UDEV_RULE} && udevadm control --reload-rules "
                   "&& udevadm trigger --subsystem-match=hidraw")
-        self.task("Allowing access to SteelSeries devices", shlex.join(["pkexec", "sh", "-c", script]))
+        self.task("Allowing access to " + " and ".join(VENDORS.values()) + " devices",
+                  shlex.join(["pkexec", "sh", "-c", script]))
 
     # ---- state -----------------------------------------------------------------------------
     def refresh(self):
@@ -433,11 +486,18 @@ class Window(QMainWindow):
         self.dbg.state.setText("On" if debug else "Off")
         self.clean_switch.setVisible(debug)
         self.clean_switch.setChecked(CLEAN_FLAG.exists())
-        ok = any(p.exists() for p in UDEV_RULES)
-        self.udev.state.setText("Allowed" if ok else "Not allowed")
-        self.udev.subtitle.setText("Your user may open SteelSeries devices, so GG can talk to them." if ok else
-                                   "GG can't see your SteelSeries devices yet. This adds one system rule that lets "
-                                   "your user open them; replug the device afterwards.")
+        installed, up = ICUE_EXE.exists(), running(r"Corsair iCUE5 Software.iCUE\.exe")
+        self.icue.state.setText("Running" if up else "Installed" if installed else "Not installed")
+        self.icue_open.setText("Open" if installed else "Install")
+        self.icue_stop.setEnabled(up)
+        allowed = udev_allowed()
+        ok = allowed == set(VENDORS)
+        missing = " and ".join(name for v, name in VENDORS.items() if v not in allowed)
+        self.udev.state.setText("Allowed" if ok else "Not allowed" if not allowed else "Partly allowed")
+        self.udev.subtitle.setText("Your user may open " + " and ".join(VENDORS.values()) + " devices, so their "
+                                   "programs can talk to them." if ok else
+                                   f"Programs can't see your {missing} devices yet. This adds one system rule that "
+                                   "lets your user open them; replug the device afterwards.")
         self.udev_fix.setVisible(not ok)
 
 
