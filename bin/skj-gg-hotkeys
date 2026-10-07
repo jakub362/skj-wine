@@ -1,0 +1,174 @@
+#!/usr/bin/env python3
+"""skj-gg-hotkeys - make SteelSeries GG's keyboard shortcuts work everywhere on the desktop.
+
+On Windows GG watches the keyboard itself (Alt+S saves a Moments clip, ...). Under Wine it only sees
+keys typed into its own windows, and on Wayland no program may watch the keyboard at all. So this
+helper registers GG's shortcuts with the desktop (xdg-desktop-portal "GlobalShortcuts": KDE, GNOME,
+Hyprland) and, when one is pressed, tells GG "shortcut N was pressed" the same way its own key hook
+does: the event EVENT_KEYBOARD_SHORTCUT on GG's local event channel.
+
+The first time, the desktop asks you to confirm the keys; change them later in its own settings
+(KDE: System Settings > Keyboard > Shortcuts > SKJ Wine).
+
+    skj-gg-hotkeys            run while GG runs (started by skj-gg)
+    skj-gg-hotkeys --press N  press GG shortcut number N once (0 = save a Moments clip) and exit
+"""
+import base64, json, os, socket, ssl, struct, subprocess, sys, time, urllib.request
+
+GG = ("127.0.0.1", 6327)
+NAMES = {0: "Moments: save a clip"}     # what the numbers mean, where known
+MODIFIERS = ((1, "CTRL"), (2, "SHIFT"), (4, "ALT"), (8, "LOGO"))        # USB HID modifier bits (left keys)
+KEYS = {40: "Return", 41: "Escape", 43: "Tab", 44: "space"}             # USB HID key codes that aren't letters/digits/F-keys
+PORTAL = ("org.freedesktop.portal.Desktop", "/org/freedesktop/portal/desktop")
+
+
+def log(text):
+    print("[skj-gg-hotkeys] " + text, flush=True)
+
+
+def gg_get(path):
+    context = ssl._create_unverified_context()      # GG's own certificate, on localhost
+    with urllib.request.urlopen("https://%s:%d%s" % (GG + (path,)), timeout=5, context=context) as reply:
+        return json.load(reply)
+
+
+def press(index):
+    """Send GG the event its own keyboard hook sends."""
+    text = json.dumps({"event": "EVENT_KEYBOARD_SHORTCUT", "data": {"shortcut_index": index}}).encode()
+    sock = ssl._create_unverified_context().wrap_socket(socket.create_connection(GG, timeout=3))
+    key = base64.b64encode(os.urandom(16)).decode()
+    sock.sendall(("GET /eventing HTTP/1.1\r\nHost: %s:%d\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n"
+                  "Sec-WebSocket-Key: %s\r\nSec-WebSocket-Version: 13\r\n\r\n" % (GG + (key,))).encode())
+    reply = b""
+    while b"\r\n\r\n" not in reply:
+        data = sock.recv(4096)
+        if not data:
+            raise OSError("GG closed the connection")
+        reply += data
+    mask = os.urandom(4)
+    head = b"\x81" + (bytes([0x80 | len(text)]) if len(text) < 126 else b"\xfe" + struct.pack(">H", len(text))) + mask
+    sock.sendall(head + bytes(c ^ mask[i % 4] for i, c in enumerate(text)))
+    time.sleep(0.5)                                 # let GG read it before the socket goes away
+    sock.close()
+
+
+def key_name(trigger):
+    """GG's trigger ({"hidCode":22,"modifiers":4}) as the portal writes keys ("ALT+s"); None if it has no key."""
+    code = trigger.get("hidCode")
+    if not code or trigger.get("page", 1) != 1:
+        return None
+    if 4 <= code <= 29:
+        key = chr(ord("a") + code - 4)
+    elif 30 <= code <= 39:
+        key = "1234567890"[code - 30]
+    elif 58 <= code <= 69:
+        key = "F%d" % (code - 57)
+    elif code in KEYS:
+        key = KEYS[code]
+    else:
+        return None
+    return "+".join([name for bit, name in MODIFIERS if trigger.get("modifiers", 0) & (bit | bit << 4)] + [key])
+
+
+def shortcuts():
+    found = []
+    for item in gg_get("/keyboardShortcuts")["keyboardShortcuts"]:
+        try:
+            key = key_name(json.loads(item.get("trigger_data") or "{}"))
+        except ValueError:
+            key = None
+        if key and item["id"] in NAMES:             # only the ones we know: a global key is taken from every other program
+            found.append((item["id"], NAMES[item["id"]], key))
+    return found
+
+
+def gg_running():
+    return subprocess.call(["pgrep", "-f", r"SteelSeriesGGEZ\.exe"], stdout=subprocess.DEVNULL) == 0
+
+
+def main():
+    if len(sys.argv) == 3 and sys.argv[1] == "--press":
+        press(int(sys.argv[2]))
+        return 0
+
+    import gi
+    from gi.repository import Gio, GLib
+    v = GLib.Variant
+
+    wanted = None
+    for _ in range(180):                            # GG takes a while to come up
+        try:
+            wanted = shortcuts()
+            break
+        except (OSError, ValueError, KeyError):
+            time.sleep(5)
+    if not wanted:
+        log("GG has no shortcuts with keys (or never started)")
+        return 1
+
+    bus = Gio.bus_get_sync(Gio.BusType.SESSION, None)
+    try:        # say who we are, so the desktop files the keys under "SKJ Wine" (needs skj-wine.desktop installed)
+        bus.call_sync(PORTAL[0], PORTAL[1], "org.freedesktop.host.portal.Registry", "Register",
+                      v("(sa{sv})", ("skj-wine", {})), None, Gio.DBusCallFlags.NONE, 5000, None)
+    except GLib.Error:
+        pass
+    sender = bus.get_unique_name()[1:].replace(".", "_")
+    count = [0]
+
+    def request(method, make_args, timeout):
+        count[0] += 1
+        token = "skj%d_%d" % (os.getpid(), count[0])
+        path = "/org/freedesktop/portal/desktop/request/%s/%s" % (sender, token)
+        answer = []
+        sub = bus.signal_subscribe(PORTAL[0], "org.freedesktop.portal.Request", "Response", path, None,
+                                   Gio.DBusSignalFlags.NONE, lambda *a: answer.append(a[5].unpack()))
+        try:
+            bus.call_sync(PORTAL[0], PORTAL[1], "org.freedesktop.portal.GlobalShortcuts", method, make_args(token),
+                          None, Gio.DBusCallFlags.NONE, 10000, None)
+            end = time.monotonic() + timeout
+            context = GLib.MainContext.default()
+            while not answer and time.monotonic() < end:
+                if not context.iteration(False):
+                    time.sleep(0.02)
+        finally:
+            bus.signal_unsubscribe(sub)
+        if not answer or answer[0][0]:
+            raise RuntimeError("%s: %s" % (method, "refused" if answer else "no answer from the desktop"))
+        return answer[0][1]
+
+    try:
+        session = request("CreateSession", lambda t: v("(a{sv})", ({
+            "handle_token": v("s", t), "session_handle_token": v("s", "skjgg%d" % os.getpid())},)), 10)["session_handle"]
+        bound = request("BindShortcuts", lambda t: v("(oa(sa{sv})sa{sv})", (
+            session,
+            [("gg-%d" % index, {"description": v("s", name), "preferred_trigger": v("s", key)}) for index, name, key in wanted],
+            "", {"handle_token": v("s", t)})), 300)
+    except (RuntimeError, GLib.Error) as e:
+        log("the desktop didn't take the shortcuts: %s" % e)
+        return 1
+    for name, props in bound.get("shortcuts", []):
+        log("%s: %s = %s" % (name, props.get("description", ""), props.get("trigger_description", "no key")))
+
+    def activated(connection, sender_name, path, interface, signal, params):
+        handle, name, _timestamp, _options = params.unpack()
+        if handle != session or not name.startswith("gg-"):
+            return
+        try:
+            press(int(name[3:]))
+            log("pressed %s" % name)
+        except (OSError, ValueError) as e:
+            log("could not tell GG about %s: %s" % (name, e))
+
+    bus.signal_subscribe(PORTAL[0], "org.freedesktop.portal.GlobalShortcuts", "Activated", PORTAL[1], None,
+                         Gio.DBusSignalFlags.NONE, activated)
+    loop = GLib.MainLoop()
+    GLib.timeout_add_seconds(5, lambda: gg_running() or loop.quit() or False)
+    try:
+        loop.run()
+    except KeyboardInterrupt:
+        pass
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

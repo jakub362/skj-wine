@@ -60,6 +60,7 @@ struct encoder
     INT16 *pcm;                 /* samples waiting to be encoded */
     UINT pcm_frames, pcm_capacity;
     LONGLONG next_time;         /* time stamp of the first waiting sample */
+    LONGLONG frame_duration;    /* length of one AAC frame in the caller's time unit */
     BOOL have_time, draining;
 };
 
@@ -140,6 +141,7 @@ static HRESULT open_codec(struct encoder *This)
 {
     close_codec(This);
     if (!This->input_type || !This->output_type) return S_OK;
+    This->frame_duration = (LONGLONG)FRAME * 10000000 / This->rate;
     if (aacEncOpen(&This->enc, 0, This->channels) != AACENC_OK) return E_FAIL;
     if (aacEncoder_SetParam(This->enc, AACENC_AOT, 2) != AACENC_OK ||
         aacEncoder_SetParam(This->enc, AACENC_SAMPLERATE, This->rate) != AACENC_OK ||
@@ -475,10 +477,17 @@ static HRESULT WINAPI encoder_ProcessInput(IMFTransform *iface, DWORD id, IMFSam
             }
             if (SUCCEEDED(hr))
             {
-                if (!This->have_time && SUCCEEDED(IMFSample_GetSampleTime(sample, &time)))
+                /* follow the caller's clock on every sample: recorders drop audio to stay in sync
+                 * with the picture and expect the time stamps they put in to come out again */
+                if (SUCCEEDED(IMFSample_GetSampleTime(sample, &time)))
                 {
-                    This->next_time = time - (LONGLONG)This->pcm_frames * 10000000 / This->rate;
+                    LONGLONG duration;
+                    This->frame_duration = (LONGLONG)FRAME * 10000000 / This->rate;
+                    if (frames && SUCCEEDED(IMFSample_GetSampleDuration(sample, &duration)) && duration > 0)
+                        This->frame_duration = duration * FRAME / frames;       /* whatever unit the caller counts in */
+                    This->next_time = time - (LONGLONG)This->pcm_frames * This->frame_duration / FRAME;
                     This->have_time = TRUE;
+                    trace("  time %I64d duration %I64d, %lu frames", time, This->frame_duration, frames);
                 }
                 memcpy(This->pcm + This->pcm_frames * This->channels, data, frames * This->channels * 2);
                 This->pcm_frames += frames;
@@ -543,7 +552,7 @@ static HRESULT WINAPI encoder_ProcessOutput(IMFTransform *iface, DWORD flags, DW
         memmove(This->pcm, This->pcm + FRAME * This->channels, This->pcm_frames * This->channels * 2);
         if (!out_args.numOutBytes)      /* the codec is still filling its look-ahead */
         {
-            This->next_time += (LONGLONG)FRAME * 10000000 / This->rate;
+            This->next_time += This->frame_duration;
             continue;
         }
         /* the caller normally brings the sample; programs that ask "anything ready?" with none get one of ours */
@@ -570,10 +579,10 @@ static HRESULT WINAPI encoder_ProcessOutput(IMFTransform *iface, DWORD flags, DW
         if (SUCCEEDED(hr))
         {
             IMFSample_SetSampleTime(samples[0].pSample, This->next_time);
-            IMFSample_SetSampleDuration(samples[0].pSample, (LONGLONG)FRAME * 10000000 / This->rate);
+            IMFSample_SetSampleDuration(samples[0].pSample, This->frame_duration);
             IMFSample_SetUINT32(samples[0].pSample, &MFSampleExtension_CleanPoint, 1);
         }
-        This->next_time += (LONGLONG)FRAME * 10000000 / This->rate;
+        This->next_time += This->frame_duration;
         break;
     }
     LeaveCriticalSection(&This->cs);

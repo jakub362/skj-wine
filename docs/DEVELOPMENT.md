@@ -24,7 +24,7 @@ Reverse-engineering helpers: `docs/re-tools/`.
 - Analysis files: dissassembly via `docs/re-tools/` (KMDF function names via `wdf_annotate.py`). Handler addresses in sshid.sys: dispatcher `0x14000d360`; 0008→`0x1400014b8` (queues via `0x140004438`), timer callback `0x140003cc0`, 0030→`0x140001bb4`, 002C→`0x140001c58`/`0x140005140`.
 
 ## Open work on GG, in order
-1. **Moments** (clip recording): AAC encoder (`libs/mfaacenc`) and screen capture (`libs/skjdxgi` + `bin/skj-screencast`) are done and the recording session runs. Left: saving the clip fails in gsdk's mp4 writer, and the global clip hotkey. Details in `apps/steelseries-gg/NOTES.md`. Only turn Moments on with the user at the PC.
+1. **Moments** (clip recording): desktop recording and saving work (`libs/mfaacenc`, `libs/skjdxgi` + `bin/skj-screencast`, hotkey through `bin/skj-gg-hotkeys`). Left to check: recording a game, the gallery/editor in the GG window, AMD/Intel encoders. Details in `apps/steelseries-gg/NOTES.md`. Only turn Moments on with the user at the PC.
 2. **Sonar**: needs Windows' PolicyConfig COM class (`{870AF99C-171D-4F9E-AF0D-E63DF40C2BC9}`) and virtual audio devices (plan: PipeWire sinks).
 3. **Aim Tools**: lobby works; the Unity drills (`3D Aim Trainer.exe`) reported working by the user, performance not measured.
 4. **`skj-inputd`**: macros and live-preview button suppression (evdev grab + uinput, driven by skjsshid IOCTLs).

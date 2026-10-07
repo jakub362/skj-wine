@@ -2,7 +2,7 @@
   "id": "steelseries-gg",
   "name": "SteelSeries GG",
   "summary": "Mouse, keyboard and headset settings, Prism lighting, GameSense, Aim Tools.",
-  "tested": "GG 121.0.0 on Proton-GE 11-7 with an Aerox 3 Wireless, 2026-10-06",
+  "tested": "GG 121.0.0 on Proton-GE 11-7 with an Aerox 3 Wireless, 2026-10-07",
   "works": [
     "Devices are found (USB and 2.4 GHz), battery level",
     "DPI, polling rate, sleep timer, button and key remaps (after Save)",
@@ -11,10 +11,10 @@
     "Aim Tools and the 3D Aim Trainer",
     "SteelSeries account login",
     "GG updates (installed on the next GG start)",
-    "Screen capture for recorders (your desktop asks once which screen to share)"
+    "Screen capture for recorders (your desktop asks once which screen to share)",
+    "Moments: records the desktop with sound and saves clips; Alt+S works anywhere (your desktop asks once to confirm the key and which screen to share). NVIDIA cards only so far; recording inside a game is untested"
   ],
   "broken": [
-    "Moments (clip recording): records screen and sound now, but saving the clip to a file still fails; the clip hotkey isn't hooked up either",
     "Sonar: doesn't start (error 21)",
     "Macros, and button remaps in the live preview before Save",
     "Prism Audio Visualizer with a mouse as the only device (stays white); the Reflect effect",
