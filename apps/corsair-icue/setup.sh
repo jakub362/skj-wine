@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # SKJ Wine - install Corsair iCUE 5 into a prefix.
 #
-#   apps/corsair-icue/setup.sh [PREFIX]                 Corsair's own install window
-#   apps/corsair-icue/setup.sh [PREFIX] --unattended    no window: iCUE + the plugged-in devices
-#                              [--packages a,b,...]     (with --unattended: these device packages)
+#   apps/corsair-icue/setup.sh [PREFIX]                 no window: iCUE + the plugged-in devices
+#                              [--packages a,b,...]     ...or these device packages
+#   apps/corsair-icue/setup.sh [PREFIX] --wizard        Corsair's own install window
 #
 # Corsair's download, "Install iCUE.exe", is a small starter: it shows a licence page, fetches
 # Corsair's package manager (cuepkg.exe), has it install the real installer (icue-installer.exe)
@@ -15,11 +15,14 @@
 set -euo pipefail
 ROOT="$(cd "$(dirname "$(readlink -f "$0")")/../.." && pwd)"
 DIST="${SKJ_WINE_DIST:-$ROOT/dist}"
-PREFIX="$HOME/.local/share/skj-wine/corsair-icue"; PACKAGES=""; UNATTENDED=0
+# Corsair's window currently stops at 77 % (its device detection never finishes under Wine, see NOTES.md),
+# so the install without it is the default until that is fixed; --wizard opens Corsair's window.
+PREFIX="$HOME/.local/share/skj-wine/corsair-icue"; PACKAGES=""; UNATTENDED=1
 while [ $# -gt 0 ]; do
   case "$1" in
     --packages) PACKAGES="$2"; UNATTENDED=1; shift 2 ;;
     --unattended) UNATTENDED=1; shift ;;
+    --wizard) UNATTENDED=0; shift ;;
     *) PREFIX="$1"; shift ;;
   esac
 done

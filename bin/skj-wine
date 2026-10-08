@@ -312,7 +312,7 @@ class Window(QMainWindow):
 
     def icue_setup(self):
         if self.have_wine():
-            self.task("Setting up Corsair iCUE (downloads about 450 MB, then Corsair's installer opens)",
+            self.task("Setting up Corsair iCUE (downloads about 450 MB, takes a few minutes)",
                       shlex.join([str(BIN / "skj-icue"), "--stop"]) + "; "
                       + shlex.join([str(ROOT / "apps/corsair-icue/setup.sh"), str(ICUE_PREFIX)]))
 

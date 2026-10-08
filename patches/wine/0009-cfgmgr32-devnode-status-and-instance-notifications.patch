@@ -1,0 +1,67 @@
+From: SKJ Wine
+Subject: cfgmgr32: implement CM_Get_DevNode_Status, accept device-instance notifications
+
+- CM_Get_DevNode_Status(_Ex) returned success without writing status/problem, leaving
+  callers with garbage. Every device node Wine has is present and started.
+- CM_Register_Notification with CM_NOTIFY_FILTER_TYPE_DEVICEINSTANCE failed with
+  CR_CALL_NOT_IMPLEMENTED; callers (Corsair iCUE's WMI device lister) log it as a failure.
+  Register it without delivering events.
+
+diff --git a/dlls/cfgmgr32/cfgmgr32.c b/dlls/cfgmgr32/cfgmgr32.c
+index 2beee310..6ef8404a 100644
+--- a/dlls/cfgmgr32/cfgmgr32.c
++++ b/dlls/cfgmgr32/cfgmgr32.c
+@@ -2130,8 +2130,18 @@ CONFIGRET WINAPI CM_Create_DevNodeA( DEVINST *node, DEVINSTID_A instance_id, DEV
+  */
+ CONFIGRET WINAPI CM_Get_DevNode_Status_Ex( ULONG *status, ULONG *problem, DEVINST node, ULONG flags, HMACHINE machine )
+ {
+-    FIXME( "status %p, problem %p, node %#lx, flags %#lx, machine %p stub!\n", status, problem,
+-           node, flags, machine );
++    struct device dev;
++
++    TRACE( "status %p, problem %p, node %#lx, flags %#lx, machine %p\n", status, problem, node, flags, machine );
++    if (machine) FIXME( "machine %p not implemented!\n", machine );
++    if (flags) return CR_INVALID_FLAG;
++    if (!status || !problem) return CR_INVALID_POINTER;
++    if (devnode_get_device( node, &dev )) return CR_INVALID_DEVNODE;
++
++    /* Every device that has a node here is present and running; Wine has no half-installed or
++     * problem devices. Callers poll this until a device is "started" before they use it. */
++    *status = DN_DRIVER_LOADED | DN_STARTED | DN_NT_ENUMERATOR | DN_NT_DRIVER;
++    *problem = 0;
+     return CR_SUCCESS;
+ }
+ 
+diff --git a/dlls/cfgmgr32/notification.c b/dlls/cfgmgr32/notification.c
+index 12ed121f..6725959e 100644
+--- a/dlls/cfgmgr32/notification.c
++++ b/dlls/cfgmgr32/notification.c
+@@ -151,8 +151,17 @@ static CONFIGRET create_notify_context( const CM_NOTIFY_FILTER *filter, HCMNOTIF
+         notify_filter.handle.dbch_handle = filter->u.DeviceHandle.hTarget;
+         break;
+     case CM_NOTIFY_FILTER_TYPE_DEVICEINSTANCE:
+-        FIXME( "CM_NOTIFY_FILTER_TYPE_DEVICEINSTANCE is not supported!\n" );
+-        return CR_CALL_NOT_IMPLEMENTED;
++        /* No events are delivered for a single device instance yet, but the registration succeeds:
++         * callers treat a failure here as "device notifications don't work" and never finish
++         * their device scan (Corsair iCUE's installer). */
++        FIXME( "CM_NOTIFY_FILTER_TYPE_DEVICEINSTANCE %s: no events will be sent.\n",
++               debugstr_w(filter->u.DeviceInstance.InstanceId) );
++        if (!(ctx = calloc( 1, sizeof(*ctx) ))) return CR_OUT_OF_MEMORY;
++        ctx->magic = CM_NOTIFY_CONTEXT_MAGIC;
++        ctx->user_data = user_data;
++        ctx->callback = callback;
++        *notify_handle = ctx;
++        return CR_SUCCESS;
+     default:
+         return CR_INVALID_DATA;
+     }
+@@ -206,7 +215,7 @@ CONFIGRET WINAPI CM_Unregister_Notification( HCMNOTIFICATION notify )
+     {
+         if (ctx->magic == CM_NOTIFY_CONTEXT_MAGIC)
+         {
+-            I_ScUnregisterDeviceNotification( ctx->notify );
++            if (ctx->notify) I_ScUnregisterDeviceNotification( ctx->notify );
+             free( ctx );
+         }
+         else

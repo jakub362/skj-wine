@@ -31,6 +31,25 @@ for vendor `1b1c`, Wine page of the SKJ Wine window), lighting, key assignments.
 - `<install>\cuepkg` is a junction to `cuepkg-<version>`; Wine stores it as a `cuepkg?` file with a
   `user.WINEREPARSE` attribute and resolves it fine.
 
+## Device detection (2026-10-08, open)
+- Corsair's installer window sits at 77 % forever: it is in "stage 1 device detection" (log ends after
+  `cue.mod.hid: Startup enumeration completed: 0`, never prints `Stage 1 devices received`).
+- iCUE itself kept **all device enumerators disabled**: `usersession.dll` calls `WTSOpenServerW(NULL)`, Wine returned
+  NULL, so the session counted as not local (`Local changed to false`). Fixed by `patches/wine/0008`: now
+  `Local changed to true` → `Enable all enumerators` → `Enumeration finished, all devices initialized`.
+- Still: **no device is recognised**, in iCUE and in the installer. Known so far: the HID nodes are there
+  (`HID\VID_1B1C&PID_2B02&MI_00…MI_04&COL02`, receiver `PID_2B00`), iCUE opens each of them and reads attributes and
+  descriptors, but never writes a report (no bragi handshake). `HidEnumerator.dll` walks `CM_Get_Parent` twice per device:
+  here that gives `USB\VID&PID&MI_nn\…` then `ROOT\WINE\WINEBUS`; on Windows the second step is the whole-device node
+  `USB\VID&PID\serial`. Faking that node in `CM_Get_Parent` did **not** change anything (tried, reverted).
+- Not the cause (checked): the device lister service (it is started on demand and stops after 30 s idle; Wine also ends
+  services when the last program exits), `CM_Register_Notification` for device instances (now accepted, `patches/wine/0009`),
+  `CM_Get_DevNode_Status` (was an empty stub, now filled in, but iCUE doesn't call it), Bluetooth device watcher (not used).
+- Debug logging: `CommonSettings/DebugLogging` in `AppData/Roaming/Corsair/CUE5/config.cuecfg` and `QT_LOGGING_RULES` only
+  produce a handful of `qt.*` debug lines; the `cue.mod.*` categories stay at info.
+- Next idea: find what `HidEnumerator.dll` rejects (filters are "Add filter"/"filter out insertion"), e.g. by
+  disassembling its device-key function, or by comparing with a Windows `SetupDi` dump of the same keyboard.
+
 ## First start (no device access yet)
 - `iCUE Launcher.exe` → `iCUE.exe`, Qt 6 window opens (DXVK).
 - Log: `users/steamuser/AppData/Local/Corsair/Logs/CUE5/*.log`. Seen: device manifest for the K70 loaded; bragi/usb/wmi

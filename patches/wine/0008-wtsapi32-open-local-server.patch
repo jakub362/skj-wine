@@ -1,0 +1,52 @@
+From: SKJ Wine
+Subject: wtsapi32: WTSOpenServer succeeds for the local machine
+
+WTSOpenServerW/ExW were stubs returning NULL. Programs open the local server (NULL name)
+before asking for session information and treat a failure as "not a local, active session":
+Corsair iCUE then keeps every device enumerator switched off and never looks for hardware.
+Return a token handle for the local machine; the query functions already ignore the handle.
+
+diff --git a/dlls/wtsapi32/wtsapi32.c b/dlls/wtsapi32/wtsapi32.c
+index 51db5f16..20c9c88d 100644
+--- a/dlls/wtsapi32/wtsapi32.c
++++ b/dlls/wtsapi32/wtsapi32.c
+@@ -417,9 +417,7 @@ BOOL WINAPI WTSLogoffSession(HANDLE hserver, DWORD session_id, BOOL bwait)
+  */
+ HANDLE WINAPI WTSOpenServerExW(WCHAR *server_name)
+ {
+-    FIXME("(%s) stub\n", debugstr_w(server_name));
+-    SetLastError(ERROR_CALL_NOT_IMPLEMENTED);
+-    return NULL;
++    return WTSOpenServerW(server_name);
+ }
+ 
+ /************************************************************
+@@ -442,12 +440,27 @@ HANDLE WINAPI WTSOpenServerA(LPSTR pServerName)
+     return NULL;
+ }
+ 
++/* The only server there is: this machine. Programs open it by name (or NULL) and give up on all
++ * session information when that fails, so hand out a token the other functions accept. */
++#define WTS_LOCAL_SERVER_HANDLE ((HANDLE)(ULONG_PTR)0x57545301)
++
++static BOOL is_local_server(const WCHAR *name)
++{
++    WCHAR computer[MAX_COMPUTERNAME_LENGTH + 1];
++    DWORD size = ARRAY_SIZE(computer);
++
++    if (!name || !*name || !wcsicmp(name, L"localhost") || !wcscmp(name, L".")) return TRUE;
++    return GetComputerNameW(computer, &size) && !wcsicmp(name, computer);
++}
++
+ /************************************************************
+  *                WTSOpenServerW (WTSAPI32.@)
+  */
+ HANDLE WINAPI WTSOpenServerW(LPWSTR pServerName)
+ {
+-    FIXME("(%s) stub\n", debugstr_w(pServerName));
++    TRACE("(%s)\n", debugstr_w(pServerName));
++    if (is_local_server(pServerName)) return WTS_LOCAL_SERVER_HANDLE;
++    FIXME("(%s) remote servers are not supported\n", debugstr_w(pServerName));
+     SetLastError(ERROR_CALL_NOT_IMPLEMENTED);
+     return NULL;
+ }
