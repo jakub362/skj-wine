@@ -4,7 +4,7 @@
   "summary": "Corsair keyboards, mice and headsets: lighting, key assignments, profiles.",
   "tested": "iCUE 5.52.93 on Proton-GE 11-7 with a K70 CORE RGB TKL Wireless, 2026-10-07 (early: installs and opens, the keyboard itself is not checked yet)",
   "works": [
-    "Installs without Corsair's installer (which can't run under Wine)",
+    "Installs with Corsair's own install window (SKJ Wine replaces only the small starter that can't run under Wine)",
     "The iCUE window opens"
   ],
   "broken": [

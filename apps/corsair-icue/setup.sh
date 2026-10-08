@@ -1,22 +1,29 @@
 #!/usr/bin/env bash
 # SKJ Wine - install Corsair iCUE 5 into a prefix.
 #
-#   apps/corsair-icue/setup.sh [PREFIX] [--packages a,b,...]
+#   apps/corsair-icue/setup.sh [PREFIX]                 Corsair's own install window
+#   apps/corsair-icue/setup.sh [PREFIX] --unattended    no window: iCUE + the plugged-in devices
+#                              [--packages a,b,...]     (with --unattended: these device packages)
 #
-# Corsair's "Install iCUE.exe" can't run here: its window is built with Windows' XAML, which Wine
-# doesn't have, so it crashes before doing anything. But all it does is fetch Corsair's package
-# manager (cuepkg.exe) and tell it what to install - so this script does that itself:
-#   1. download cuepkg from Corsair and have it install its own current version
-#   2. install "core" (iCUE itself) plus the support package of every Corsair device that is
-#      plugged in right now (or the ones named with --packages)
+# Corsair's download, "Install iCUE.exe", is a small starter: it shows a licence page, fetches
+# Corsair's package manager (cuepkg.exe), has it install the real installer (icue-installer.exe)
+# and starts that. The starter's page is built with Windows' XAML, which Wine doesn't have, so it
+# crashes before doing anything. The real installer is a normal Qt program and runs fine.
+# So this script does the starter's three steps itself and then hands over to Corsair's installer:
+# you pick devices and options in its window exactly as on Windows.
 # Everything is downloaded from Corsair's own servers (about 450 MB); nothing of it is in this repo.
 set -euo pipefail
 ROOT="$(cd "$(dirname "$(readlink -f "$0")")/../.." && pwd)"
 DIST="${SKJ_WINE_DIST:-$ROOT/dist}"
-PREFIX="$HOME/.local/share/skj-wine/corsair-icue"; PACKAGES=""
+PREFIX="$HOME/.local/share/skj-wine/corsair-icue"; PACKAGES=""; UNATTENDED=0
 while [ $# -gt 0 ]; do
-  case "$1" in --packages) PACKAGES="$2"; shift 2 ;; *) PREFIX="$1"; shift ;; esac
+  case "$1" in
+    --packages) PACKAGES="$2"; UNATTENDED=1; shift 2 ;;
+    --unattended) UNATTENDED=1; shift ;;
+    *) PREFIX="$1"; shift ;;
+  esac
 done
+export PROTON_ENABLE_HIDRAW=1   # so Corsair's installer can see which devices are plugged in
 export WINEPREFIX="$PREFIX" PATH="$DIST/bin:$PATH" WINEDEBUG=-all WINEDLLOVERRIDES="winemenubuilder.exe=d"
 BASE=https://www3.corsair.com/software/CUE_V5/public/modules/windows
 CUEPKG_SHA256=91040133fc2f06f84b07e905bfeffa8f9b52177dc540309b3ba41da2b843fe8a
@@ -62,7 +69,23 @@ PM=$(ls -d "$INSTALL"/cuepkg-*/ 2>/dev/null | sort -V | tail -1 || true)
 [ -n "$PM" ] && [ -f "$PM/cuepkg.exe" ] || { say "The package manager did not install."; exit 1; }
 cuepkg "$PM" update
 
-# --- 2. iCUE + the plugged-in devices -------------------------------------------------------
+# --- 2. Corsair's installer -----------------------------------------------------------------
+if [ "$UNATTENDED" = 0 ]; then
+  say "Fetching Corsair's installer (downloads about 450 MB the first time)"
+  cuepkg "$PM" install icue-installer
+  [ -f "$INSTALL/icue-installer.exe" ] || { say "Corsair's installer did not arrive - see the messages above."; exit 1; }
+  # its languages: de en es fr it ja ko pt ru uk zh; anything else gets English
+  LOCALE=en_US
+  case "${LANG:-}" in de_*|es_*|fr_*|it_*|ja_*|ko_*|pt_*|ru_*|uk_*|zh_*) LOCALE="${LANG%%.*}" ;; esac
+  say "Starting Corsair's installer - continue in its window"
+  ( cd "$INSTALL" && wine icue-installer.exe --action=install --locale="$LOCALE" >/dev/null 2>&1 ) || true
+  wineserver -k 2>/dev/null || true
+  [ -f "$INSTALL/iCUE.exe" ] || { say "iCUE is not installed (the installer was closed early?)."; exit 1; }
+  say "iCUE is installed in $PREFIX"
+  exit 0
+fi
+
+# --- 2b. unattended: iCUE + the plugged-in devices, no window ---------------------------------
 if [ -z "$PACKAGES" ]; then
   curl -fsL -o "$CACHE/metadata.json" "$BASE/packages/cuepkg-metadata.json"
   PACKAGES=$(python3 - "$CACHE/metadata.json" <<'EOF'
