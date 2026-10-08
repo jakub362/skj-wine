@@ -23,5 +23,7 @@ if [ "${1:-}" = --setup ] || [ ! -f "$DIR/iCUE.exe" ]; then
   notify "Corsair iCUE is ready."
   [ "${1:-}" = --setup ] && exit 0
 fi
+# iCUE reads its devices' extra USB text strings; Wine gets them from the registry (tools/usb-strings.py)
+"$ROOT/tools/usb-strings.py" "$WINEPREFIX" >/dev/null 2>&1 || true
 cd "$DIR" || exit 1
 exec wine "iCUE Launcher.exe" >"$LOGDIR/icue.log" 2>&1

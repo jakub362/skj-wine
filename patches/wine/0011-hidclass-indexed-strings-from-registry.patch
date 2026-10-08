@@ -1,0 +1,72 @@
+From: SKJ Wine
+Subject: hidclass.sys: answer IOCTL_HID_GET_INDEXED_STRING from HKLM\Software\Wine\UsbStrings
+
+HidD_GetIndexedString was not handled at all (ERROR_NOT_SUPPORTED). hidraw has no way to
+read arbitrary USB string descriptors, so the host side (tools/usb-strings.py in SKJ Wine)
+reads them through usbfs and stores them in the registry, one value per string index under
+VID_xxxx&PID_xxxx. Corsair iCUE reads its protocol variant ("BP00") from string 5 and
+cannot initialise a device without it.
+
+diff --git a/dlls/hidclass.sys/device.c b/dlls/hidclass.sys/device.c
+index 563d1ee2..40d00c2d 100644
+--- a/dlls/hidclass.sys/device.c
++++ b/dlls/hidclass.sys/device.c
+@@ -405,6 +405,39 @@ static const struct device_strings device_strings[] =
+     { .id = L"VID_054C&PID_0DF2", .product = L"DualSense Edge Wireless Controller" },
+ };
+ 
++/* USB string descriptors by their real index. The bus driver only knows manufacturer, product and
++ * serial number (hidraw has no call for the others), but vendor software reads more of them:
++ * Corsair's iCUE takes its protocol variant ("BP00") from string 5. The host side stores what the
++ * device has in HKLM\Software\Wine\UsbStrings\VID_xxxx&PID_xxxx, one value per index. */
++static NTSTATUS get_indexed_string( const WCHAR *device_id, ULONG index, WCHAR *buffer, ULONG length, ULONG_PTR *ret_len )
++{
++    const WCHAR *match_id = wcsrchr( device_id, '\\' ) + 1;
++    char data[sizeof(KEY_VALUE_PARTIAL_INFORMATION) + 256 * sizeof(WCHAR)];
++    KEY_VALUE_PARTIAL_INFORMATION *info = (KEY_VALUE_PARTIAL_INFORMATION *)data;
++    OBJECT_ATTRIBUTES attr;
++    WCHAR path[128], name[16];
++    UNICODE_STRING str;
++    NTSTATUS status;
++    HANDLE key;
++    ULONG size;
++
++    swprintf( path, ARRAY_SIZE(path), L"\\Registry\\Machine\\Software\\Wine\\UsbStrings\\%.17s", match_id );
++    RtlInitUnicodeString( &str, path );
++    InitializeObjectAttributes( &attr, &str, OBJ_CASE_INSENSITIVE | OBJ_KERNEL_HANDLE, NULL, NULL );
++    if (ZwOpenKey( &key, KEY_READ, &attr )) return STATUS_INVALID_PARAMETER;
++
++    swprintf( name, ARRAY_SIZE(name), L"%lu", index );
++    RtlInitUnicodeString( &str, name );
++    status = ZwQueryValueKey( key, &str, KeyValuePartialInformation, info, sizeof(data), &size );
++    ZwClose( key );
++    if (status || info->Type != REG_SZ) return STATUS_INVALID_PARAMETER;
++    if (info->DataLength > length) return STATUS_INVALID_USER_BUFFER;
++
++    memcpy( buffer, info->Data, info->DataLength );
++    *ret_len = info->DataLength;
++    return STATUS_SUCCESS;
++}
++
+ static BOOL use_windows_sony_controller_names(void)
+ {
+     static const WCHAR name[] = L"PROTON_SONY_WINDOWS_DEVICE_NAMES";
+@@ -601,6 +634,18 @@ NTSTATUS WINAPI pdo_ioctl( DEVICE_OBJECT *device, IRP *irp )
+             }
+             break;
+         }
++        case IOCTL_HID_GET_INDEXED_STRING:
++        {
++            WCHAR *output_buf = MmGetSystemAddressForMdlSafe( irp->MdlAddress, NormalPagePriority );
++            ULONG output_len = irpsp->Parameters.DeviceIoControl.OutputBufferLength;
++
++            if (irpsp->Parameters.DeviceIoControl.InputBufferLength < sizeof(ULONG) || !output_buf)
++                status = STATUS_INVALID_PARAMETER;
++            else
++                status = get_indexed_string( pdo->base.device_id, *(ULONG *)irp->AssociatedIrp.SystemBuffer,
++                                             output_buf, output_len, &irp->IoStatus.Information );
++            break;
++        }
+         case IOCTL_HID_GET_PRODUCT_STRING:
+         case IOCTL_HID_GET_SERIALNUMBER_STRING:
+         case IOCTL_HID_GET_MANUFACTURER_STRING:

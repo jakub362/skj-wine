@@ -37,7 +37,15 @@ for vendor `1b1c`, Wine page of the SKJ Wine window), lighting, key assignments.
 - iCUE itself kept **all device enumerators disabled**: `usersession.dll` calls `WTSOpenServerW(NULL)`, Wine returned
   NULL, so the session counted as not local (`Local changed to false`). Fixed by `patches/wine/0008`: now
   `Local changed to true` → `Enable all enumerators` → `Enumeration finished, all devices initialized`.
-- Still: **no device is recognised**, in iCUE and in the installer. Known so far: the HID nodes are there
+- **Solved 2026-10-08 (later):** two more Wine gaps. (1) `SetupDiGetDeviceRegistryProperty(SPDRP_ENUMERATOR_NAME)` was
+  unsupported; `HidEnumerator.dll` asks it per device and drops the device on failure → `patches/wine/0010`, then
+  `Startup enumeration completed: 23`. (2) bragi init reads USB string 5 with `HidD_GetIndexedString`
+  ("Read protocol variant USB string failed with 50"): the K70 has strings 4 `Bootloader version: 0.5.14`, 5 `BP00`,
+  6 `Firmware version: 7.16.118`. `patches/wine/0011` answers from `HKLM\Software\Wine\UsbStrings`, filled by
+  `tools/usb-strings.py` through usbfs (needs the udev rule's `SUBSYSTEM=="usb"` line). Result:
+  `K70 CORE RGB TKL WIRELESS (vid=1b1c, pid=2b02) inserted.` How it was found: `WINEDEBUG=+relay` with
+  `RelayFromInclude=HidEnumerator;BragiProtocols;BragiDeviceListing` (module names **without** `.dll`).
+- Before that: **no device was recognised**, in iCUE and in the installer. Known so far: the HID nodes are there
   (`HID\VID_1B1C&PID_2B02&MI_00…MI_04&COL02`, receiver `PID_2B00`), iCUE opens each of them and reads attributes and
   descriptors, but never writes a report (no bragi handshake). `HidEnumerator.dll` walks `CM_Get_Parent` twice per device:
   here that gives `USB\VID&PID&MI_nn\…` then `ROOT\WINE\WINEBUS`; on Windows the second step is the whole-device node

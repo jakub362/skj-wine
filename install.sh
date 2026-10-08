@@ -55,7 +55,7 @@ if [ "$(cat "$ROOT/dist/.skj-base" 2>/dev/null)" != "$BASE" ]; then
 fi
 DLLDIR="$ROOT/dist/lib/wine/x86_64-windows"
 [ -f "$DLLDIR/crypt32.dll" ] || { say "Could not find Wine's x86_64-windows folder in $ROOT/dist"; exit 1; }
-cp --remove-destination "$ROOT"/lib/wine/x86_64-windows/*.dll "$DLLDIR/"
+cp --remove-destination "$ROOT"/lib/wine/x86_64-windows/*.dll "$ROOT"/lib/wine/x86_64-windows/*.sys "$DLLDIR/"
 rm -f "$ROOT/dist/bin/wineserver"; install -m755 "$ROOT/lib/bin/wineserver" "$ROOT/dist/bin/wineserver"
 say "Wine: $BASE ($("$ROOT/dist/bin/wine" --version)) with SKJ fixes"
 

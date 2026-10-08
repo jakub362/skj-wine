@@ -1,0 +1,64 @@
+From: SKJ Wine
+Subject: setupapi: implement SPDRP_ENUMERATOR_NAME
+
+SetupDiGetDeviceRegistryProperty failed for SPDRP_ENUMERATOR_NAME. On Windows it always
+works: it is the first part of the device instance id ("HID", "USB", "BTHENUM").
+Corsair iCUE asks for it for every HID device and silently drops the device when the call
+fails, so its device list stayed empty ("Startup enumeration completed: 0").
+
+diff --git a/dlls/setupapi/devinst.c b/dlls/setupapi/devinst.c
+index efec8408..811d5c68 100644
+--- a/dlls/setupapi/devinst.c
++++ b/dlls/setupapi/devinst.c
+@@ -3523,6 +3523,25 @@ BOOL WINAPI SetupDiGetDeviceRegistryPropertyA(HDEVINFO devinfo,
+         return FALSE;
+     }
+ 
++    if (Property == SPDRP_ENUMERATOR_NAME)
++    {
++        WCHAR nameW[MAX_PATH];
++        DWORD size;
++
++        if (!SetupDiGetDeviceRegistryPropertyW(devinfo, device_data, Property, PropertyRegDataType,
++                (BYTE *)nameW, sizeof(nameW), NULL))
++            return FALSE;
++        size = WideCharToMultiByte(CP_ACP, 0, nameW, -1, NULL, 0, NULL, NULL);
++        if (RequiredSize) *RequiredSize = size;
++        if (PropertyBufferSize < size)
++        {
++            SetLastError(ERROR_INSUFFICIENT_BUFFER);
++            return FALSE;
++        }
++        WideCharToMultiByte(CP_ACP, 0, nameW, -1, (char *)PropertyBuffer, PropertyBufferSize, NULL, NULL);
++        return TRUE;
++    }
++
+     if (Property < ARRAY_SIZE(PropertyMap) && PropertyMap[Property].nameA)
+     {
+         DWORD size = PropertyBufferSize;
+@@ -3575,6 +3594,25 @@ BOOL WINAPI SetupDiGetDeviceRegistryPropertyW(HDEVINFO devinfo,
+         return FALSE;
+     }
+ 
++    if (Property == SPDRP_ENUMERATOR_NAME)
++    {
++        /* not stored anywhere: it is the first part of the instance id ("HID", "USB", ...) */
++        const WCHAR *end = wcschr(device->instanceId, '\\');
++        DWORD len = end ? end - device->instanceId : wcslen(device->instanceId);
++        DWORD size = (len + 1) * sizeof(WCHAR);
++
++        if (PropertyRegDataType) *PropertyRegDataType = REG_SZ;
++        if (RequiredSize) *RequiredSize = size;
++        if (PropertyBufferSize < size)
++        {
++            SetLastError(ERROR_INSUFFICIENT_BUFFER);
++            return FALSE;
++        }
++        memcpy(PropertyBuffer, device->instanceId, len * sizeof(WCHAR));
++        ((WCHAR *)PropertyBuffer)[len] = 0;
++        return TRUE;
++    }
++
+     if (Property < ARRAY_SIZE(PropertyMap) && PropertyMap[Property].nameW)
+     {
+         DWORD size = PropertyBufferSize;

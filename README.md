@@ -157,6 +157,8 @@ share/applications/, icons/  desktop entries, icon
 | `0007-server-named-pipe-without-io-access-starts-disconnected` | wineserver let clients connect to a pipe instance opened without read/write access (Go's go-winio uses one only to hold the name) → the first client hung. GG Moments never got its capture service's handshake |
 | `0008-wtsapi32-open-local-server` | `WTSOpenServer` for the local machine returned NULL → programs that check their session first decide it isn't a local one. Corsair iCUE kept all its device scanning switched off |
 | `0009-cfgmgr32-devnode-status-and-instance-notifications` | `CM_Get_DevNode_Status` succeeded without filling in an answer; per-device `CM_Register_Notification` failed. Both used by device-scanning code (Corsair iCUE) |
+| `0010-setupapi-enumerator-name-property` | `SetupDiGetDeviceRegistryProperty(SPDRP_ENUMERATOR_NAME)` failed. Corsair iCUE asks it for every HID device and drops the device without it: empty device list |
+| `0011-hidclass-indexed-strings-from-registry` | `HidD_GetIndexedString` was not supported. iCUE reads its protocol variant from USB string 5. Strings come from `tools/usb-strings.py` (usbfs → registry), since hidraw can't read them |
 
 `patches/wine/already-in-proton/` holds two more (crypt32 NCRYPT flag, PFX key spec) that plain
 wine-staging needed; Valve's Wine has its own versions.

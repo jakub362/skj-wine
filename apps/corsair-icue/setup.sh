@@ -80,6 +80,7 @@ if [ "$UNATTENDED" = 0 ]; then
   # its languages: de en es fr it ja ko pt ru uk zh; anything else gets English
   LOCALE=en_US
   case "${LANG:-}" in de_*|es_*|fr_*|it_*|ja_*|ko_*|pt_*|ru_*|uk_*|zh_*) LOCALE="${LANG%%.*}" ;; esac
+  "$ROOT/tools/usb-strings.py" "$PREFIX" >/dev/null 2>&1 || true    # its device detection needs them
   say "Starting Corsair's installer - continue in its window"
   ( cd "$INSTALL" && wine icue-installer.exe --action=install --locale="$LOCALE" >/dev/null 2>&1 ) || true
   wineserver -k 2>/dev/null || true

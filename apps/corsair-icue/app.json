@@ -5,11 +5,12 @@
   "tested": "iCUE 5.52.93 on Proton-GE 11-7 with a K70 CORE RGB TKL Wireless, 2026-10-08 (early)",
   "works": [
     "Installs (iCUE itself and the package for the plugged-in device)",
-    "The iCUE window opens"
+    "The iCUE window opens",
+    "iCUE finds the keyboard (K70 CORE RGB TKL Wireless, by cable) and starts talking to it"
   ],
   "broken": [
-    "iCUE does not find the keyboard yet",
-    "Corsair's own install window stops at 77 % (device detection) - SKJ Wine installs without it for now",
+    "Lighting, key assignments, profiles: not checked yet",
+    "Corsair's own install window: not re-tested since the device fixes (it used to stop at 77 %)",
     "Corsair's background services (system sensors, CPU info) don't start: no temperatures or fan data",
     "Murals and system statistics are not expected to work"
   ]

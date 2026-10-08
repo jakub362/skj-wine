@@ -45,7 +45,7 @@ def udev_allowed():
             text += path.read_text()
         except OSError:
             pass
-    return {v for v in VENDORS if f'ATTRS{{idVendor}}=="{v}"' in text}
+    return {v for v in VENDORS if f'ATTRS{{idVendor}}=="{v}"' in text and f'ATTR{{idVendor}}=="{v}"' in text}
 
 
 def running(pattern):
@@ -466,9 +466,12 @@ class Window(QMainWindow):
         self.task("Stopping", "; ".join(cmds))
 
     def fix_udev(self):
-        lines = "\\n".join(f'SUBSYSTEM=="hidraw", ATTRS{{idVendor}}=="{v}", TAG+="uaccess"' for v in VENDORS)
+        # hidraw = talk to the device; usb = read its text strings (iCUE needs more of them than hidraw gives)
+        lines = "\\n".join(f'SUBSYSTEM=="hidraw", ATTRS{{idVendor}}=="{v}", TAG+="uaccess"\\n'
+                            f'SUBSYSTEM=="usb", ENV{{DEVTYPE}}=="usb_device", ATTR{{idVendor}}=="{v}", TAG+="uaccess"'
+                            for v in VENDORS)
         script = (f"printf '{lines}\\n' > {UDEV_RULE} && udevadm control --reload-rules "
-                  "&& udevadm trigger --subsystem-match=hidraw")
+                  "&& udevadm trigger --subsystem-match=hidraw && udevadm trigger --subsystem-match=usb")
         self.task("Allowing access to " + " and ".join(VENDORS.values()) + " devices",
                   shlex.join(["pkexec", "sh", "-c", script]))
 
