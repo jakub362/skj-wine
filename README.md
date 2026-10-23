@@ -162,6 +162,7 @@ share/applications/, icons/  desktop entries, icon
 | `0012-websocket-client-protocol-component` | `websocket.dll` was stubs; .NET Framework's `ClientWebSocket` runs on it (its type initializer already fails). Medal's recorder talks to Medal over it |
 | `0013-mmdevapi-process-loopback` | `ActivateAudioInterfaceAsync("VAD\\Process_Loopback")` (record one program's sound) failed → Medal's recorder couldn't start. Now gives the loopback of the default output (all sound, not just one program) |
 | `0014-d2d1-device-multithread-lock` | d2d1 drew without the device's `ID3D10Multithread` lock → when another thread used the same Direct3D context (Medal's recorder), DXVK crashed a few seconds into recording |
+| `0015-shell32-notify-icon-get-rect` | `Shell_NotifyIconGetRect` was a stub → Electron apps (Medal) thought there was no tray icon and quit when their window was closed |
 
 `patches/wine/already-in-proton/` holds two more (crypt32 NCRYPT flag, PFX key spec) that plain
 wine-staging needed; Valve's Wine has its own versions.

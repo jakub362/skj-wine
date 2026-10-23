@@ -1,0 +1,33 @@
+From: SKJ Wine
+Subject: shell32: answer Shell_NotifyIconGetRect
+
+The icon is shown through StatusNotifierItem, which has no position; return the usual tray corner.
+Electron apps (Medal) took the failure as "no tray" and quit when their window was closed.
+
+diff --git a/dlls/shell32/systray.c b/dlls/shell32/systray.c
+index 9205852a..25270c05 100644
+--- a/dlls/shell32/systray.c
++++ b/dlls/shell32/systray.c
+@@ -370,6 +370,20 @@ BOOL WINAPI Shell_NotifyIconW(DWORD dwMessage, PNOTIFYICONDATAW nid)
+  */
+ HRESULT WINAPI Shell_NotifyIconGetRect(const NOTIFYICONIDENTIFIER* identifier, RECT* icon_location)
+ {
+-    FIXME("stub (%p) (%p)\n", identifier, icon_location);
+-    return E_NOTIMPL;
++    int size = GetSystemMetrics( SM_CXSMICON );
++    RECT work;
++
++    TRACE("(%p) (%p)\n", identifier, icon_location);
++
++    if (!identifier || !icon_location || identifier->cbSize != sizeof(*identifier)) return E_INVALIDARG;
++    if (!identifier->hWnd && IsEqualGUID( &identifier->guidItem, &GUID_NULL )) return E_INVALIDARG;
++    if (identifier->hWnd && !IsWindow( identifier->hWnd )) return E_FAIL;
++
++    /* The icon lives in the desktop's own tray (StatusNotifierItem), which doesn't tell where it is.
++     * Programs ask mainly to learn that the icon is shown (Electron's Tray.getBounds: an empty rect means
++     * "no tray", and the program then quits when its window closes); answer with the usual corner. */
++    if (!SystemParametersInfoW( SPI_GETWORKAREA, 0, &work, 0 ))
++        SetRect( &work, 0, 0, GetSystemMetrics( SM_CXSCREEN ), GetSystemMetrics( SM_CYSCREEN ) );
++    SetRect( icon_location, work.right - 2 * size, work.bottom - size - 4, work.right - size, work.bottom - 4 );
++    return S_OK;
+ }
