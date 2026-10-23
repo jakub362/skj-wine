@@ -1,0 +1,48 @@
+From: SKJ Wine
+Subject: mmdevapi: answer process-loopback activation with the default output's loopback
+
+ActivateAudioInterfaceAsync(L"VAD\\Process_Loopback", ...) is how Windows 10 programs record the
+sound of one process (or all but one). Wine looked it up as a device id and failed with
+ERROR_FILE_NOT_FOUND, so Medal's recorder could not start at all.
+
+This returns an IAudioClient of the default output device; the caller initializes it with
+AUDCLNT_STREAMFLAGS_LOOPBACK, so it records everything that plays instead of one process. Not exact,
+but the recording starts and has the program's sound in it.
+
+diff --git a/dlls/mmdevapi/main.c b/dlls/mmdevapi/main.c
+index d33c1a1d..ef6086b6 100644
+--- a/dlls/mmdevapi/main.c
++++ b/dlls/mmdevapi/main.c
+@@ -1283,12 +1283,32 @@ HRESULT WINAPI ActivateAudioInterfaceAsync(const WCHAR *path, REFIID riid,
+     op->callback = done_handler;
+     IActivateAudioInterfaceCompletionHandler_AddRef(done_handler);
+ 
++    if (path && !wcsicmp(path, L"VAD\\Process_Loopback")) {
++        /* Capturing the audio of one process tree (Windows 10 2004+). Wine can't tell the
++         * processes' audio apart, so this records everything the default speakers play: callers
++         * (recorders like Medal) then at least get the sound instead of failing outright. The
++         * caller initializes the client with AUDCLNT_STREAMFLAGS_LOOPBACK, as it does on Windows. */
++        IMMDeviceEnumerator *devenum;
++
++        FIXME("process loopback: capturing all of the default output instead\n");
++        op->result_iface = NULL;
++        op->result_hr = MMDevEnum_Create(&IID_IMMDeviceEnumerator, (void**)&devenum);
++        if (SUCCEEDED(op->result_hr)) {
++            op->result_hr = IMMDeviceEnumerator_GetDefaultAudioEndpoint(devenum, eRender, eConsole, &mmdev);
++            IMMDeviceEnumerator_Release(devenum);
++        }
++        if (SUCCEEDED(op->result_hr)) {
++            op->result_hr = IMMDevice_Activate(mmdev, riid, CLSCTX_INPROC_SERVER, NULL, (void**)&op->result_iface);
++            IMMDevice_Release(mmdev);
++        }
++    } else {
+     op->result_hr = get_mmdevice_by_activatepath(path, &mmdev);
+     if (SUCCEEDED(op->result_hr)) {
+         op->result_hr = IMMDevice_Activate(mmdev, riid, CLSCTX_INPROC_SERVER, params, (void**)&op->result_iface);
+         IMMDevice_Release(mmdev);
+     }else
+         op->result_iface = NULL;
++    }
+ 
+     ht = CreateThread(NULL, 0, &activate_async_threadproc, op, 0, NULL);
+     CloseHandle(ht);

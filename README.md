@@ -160,6 +160,8 @@ share/applications/, icons/  desktop entries, icon
 | `0010-setupapi-enumerator-name-property` | `SetupDiGetDeviceRegistryProperty(SPDRP_ENUMERATOR_NAME)` failed. Corsair iCUE asks it for every HID device and drops the device without it: empty device list |
 | `0011-hidclass-indexed-strings-from-registry` | `HidD_GetIndexedString` was not supported. iCUE reads its protocol variant from USB string 5. Strings come from `tools/usb-strings.py` (usbfs → registry), since hidraw can't read them |
 | `0012-websocket-client-protocol-component` | `websocket.dll` was stubs; .NET Framework's `ClientWebSocket` runs on it (its type initializer already fails). Medal's recorder talks to Medal over it |
+| `0013-mmdevapi-process-loopback` | `ActivateAudioInterfaceAsync("VAD\\Process_Loopback")` (record one program's sound) failed → Medal's recorder couldn't start. Now gives the loopback of the default output (all sound, not just one program) |
+| `0014-d2d1-device-multithread-lock` | d2d1 drew without the device's `ID3D10Multithread` lock → when another thread used the same Direct3D context (Medal's recorder), DXVK crashed a few seconds into recording |
 
 `patches/wine/already-in-proton/` holds two more (crypt32 NCRYPT flag, PFX key spec) that plain
 wine-staging needed; Valve's Wine has its own versions.

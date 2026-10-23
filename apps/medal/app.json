@@ -2,16 +2,16 @@
   "id": "medal",
   "name": "Medal",
   "summary": "Game clips and screen recording (medal.tv).",
-  "tested": "Medal 2643.583.1 (recorder 2643.3040.1) on Proton-GE 11-7, 2026-10-23 (early)",
+  "tested": "Medal 2643.583.1 (recorder 2643.3040.1) on Proton-GE 11-7, 2026-10-23",
   "works": [
     "Installs with Medal's own installer",
     "The Medal window opens, signing in works",
-    "The recorder starts and reports ready"
+    "Screen recording (switch on Screen Recording in Medal); F8 saves a clip with PC sound and microphone",
+    "Medal's hotkeys anywhere on the desktop (bin/skj-hotkeys, desktop asks once)"
   ],
   "broken": [
-    "Recording itself not checked yet",
     "Only CPU encoding: Medal opens NVENC with a Direct3D 11 device, which the Linux driver can't take (Medal reports 0 hardware encoders)",
-    "Medal's hotkeys (F8 = clip) only work while a Medal window has focus",
-    "Recording games that run outside Medal's Wine (Steam/Proton games) is not expected to work: Medal records games by hooking into them"
+    "Separate per-program sound tracks: every track gets all PC sound",
+    "Recording games that run outside Medal's Wine (Steam/Proton games) through Medal's game hooks; record them with Screen Recording instead"
   ]
 }

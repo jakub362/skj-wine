@@ -1,0 +1,47 @@
+From: SKJ Wine
+Subject: d2d1: hold the Direct3D device's multithread lock while drawing
+
+d2d1 swaps its own state into the device's immediate context, draws and swaps back. If another
+thread uses the same immediate context in between (Medal's recorder: one thread copies desktop
+frames, another scales them with Direct2D), DXVK crashed inside SwapDeviceContextState. Native
+d2d1 takes the ID3D10Multithread lock of the device for this; do the same.
+
+diff --git a/dlls/d2d1/device.c b/dlls/d2d1/device.c
+index c7a93362..5ec41852 100644
+--- a/dlls/d2d1/device.c
++++ b/dlls/d2d1/device.c
+@@ -122,6 +122,7 @@ static void d2d_device_context_draw(struct d2d_device_context *render_target, en
+ {
+     struct d2d_shape_resources *shape_resources = &render_target->shape_resources[shape_type];
+     ID3DDeviceContextState *prev_state;
++    ID3D10Multithread *multithread;
+     ID3D11Device1 *device = render_target->d3d_device;
+     ID3D11DeviceContext1 *context;
+     ID3D11Buffer *vs_cb = render_target->vs_cb, *ps_cb = render_target->ps_cb;
+@@ -139,6 +140,13 @@ static void d2d_device_context_draw(struct d2d_device_context *render_target, en
+     if (render_target->cs)
+         EnterCriticalSection(render_target->cs);
+ 
++    /* Other threads may use the same immediate context (e.g. a capture thread of a screen recorder);
++     * hold the device's multithread lock, as native d2d1 does, while our state is swapped in. */
++    if (FAILED(ID3D11Device1_QueryInterface(device, &IID_ID3D10Multithread, (void **)&multithread)))
++        multithread = NULL;
++    if (multithread)
++        ID3D10Multithread_Enter(multithread);
++
+     ID3D11Device1_GetImmediateContext1(device, &context);
+     ID3D11DeviceContext1_SwapDeviceContextState(context, render_target->d3d_state, &prev_state);
+ 
+@@ -193,6 +201,12 @@ static void d2d_device_context_draw(struct d2d_device_context *render_target, en
+     ID3D11DeviceContext1_Release(context);
+     ID3DDeviceContextState_Release(prev_state);
+ 
++    if (multithread)
++    {
++        ID3D10Multithread_Leave(multithread);
++        ID3D10Multithread_Release(multithread);
++    }
++
+     if (render_target->cs)
+         LeaveCriticalSection(render_target->cs);
+ }
