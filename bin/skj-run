@@ -13,6 +13,9 @@ NAME="$1"; shift
 case "$NAME" in *[!A-Za-z0-9._-]*|"") echo "prefix name: letters, digits, . _ - only" >&2; exit 1 ;; esac
 export WINEPREFIX="${SKJ_PREFIXES:-$HOME/.local/share/skj-wine/prefixes}/$NAME"
 export PATH="${SKJ_WINE_DIST:-$ROOT/dist}/bin:$PATH"
+# DXVK passes NVIDIA cards off as AMD unless NVIDIA's own API (dxvk-nvapi, put in by prefix-prep) is
+# switched on; recorders then look for AMD's encoder and find none (Medal: "0 hardware encoder options")
+export DXVK_ENABLE_NVAPI="${DXVK_ENABLE_NVAPI:-1}"
 LOG="${XDG_CACHE_HOME:-$HOME/.cache}/skj-wine/$NAME.log"
 mkdir -p "$(dirname "$WINEPREFIX")" "$(dirname "$LOG")"   # Wine only creates the last folder itself
 

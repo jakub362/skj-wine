@@ -5,11 +5,13 @@
   "tested": "Medal 2643.583.1 (recorder 2643.3040.1) on Proton-GE 11-7, 2026-10-23 (early)",
   "works": [
     "Installs with Medal's own installer",
-    "The Medal window opens",
-    "The recorder starts and talks to Medal"
+    "The Medal window opens, signing in works",
+    "The recorder starts and reports ready"
   ],
   "broken": [
-    "Recording not checked yet: the recorder waits for Medal to answer who is signed in",
+    "Recording itself not checked yet",
+    "Only CPU encoding: Medal opens NVENC with a Direct3D 11 device, which the Linux driver can't take (Medal reports 0 hardware encoders)",
+    "Medal's hotkeys (F8 = clip) only work while a Medal window has focus",
     "Recording games that run outside Medal's Wine (Steam/Proton games) is not expected to work: Medal records games by hooking into them"
   ]
 }
