@@ -1,0 +1,15 @@
+{
+  "id": "medal",
+  "name": "Medal",
+  "summary": "Game clips and screen recording (medal.tv).",
+  "tested": "Medal 2643.583.1 (recorder 2643.3040.1) on Proton-GE 11-7, 2026-10-23 (early)",
+  "works": [
+    "Installs with Medal's own installer",
+    "The Medal window opens",
+    "The recorder starts and talks to Medal"
+  ],
+  "broken": [
+    "Recording not checked yet: the recorder waits for Medal to answer who is signed in",
+    "Recording games that run outside Medal's Wine (Steam/Proton games) is not expected to work: Medal records games by hooking into them"
+  ]
+}

@@ -30,6 +30,18 @@ if [ "${2:-}" = --gpu ] && [ -f "$ROOT/lib/prefix/dxgi/dxgi.dll" ] && [ -f "$DIS
   cp --remove-destination "$DIST/lib/wine/dxvk/x86_64-windows/dxgi.dll" "$WINEPREFIX/drive_c/windows/system32/dxvk_dxgi.dll"
   cp --remove-destination "$ROOT/lib/prefix/dxgi/dxgi.dll" "$WINEPREFIX/drive_c/windows/system32/dxgi.dll"
 fi
+# Fonts: Proton sets these up when Steam makes a prefix; outside Steam the Fonts folder stays empty.
+# Chromium 150+ (Electron 43, e.g. Medal) asks DirectWrite for the UI font (Tahoma) and, finding
+# nothing, falls back to itself until the stack overflows.
+FONTS="$WINEPREFIX/drive_c/windows/Fonts"; mkdir -p "$FONTS"
+REG="$WINEPREFIX/drive_c/skj-fonts.reg"
+printf 'Windows Registry Editor Version 5.00\r\n\r\n[HKEY_LOCAL_MACHINE\\Software\\Microsoft\\Windows NT\\CurrentVersion\\Fonts]\r\n' > "$REG"
+for f in "$DIST"/share/fonts/*.tt[fc] "$DIST"/share/wine/fonts/tahoma*.ttf; do
+  [ -f "$f" ] || continue
+  n=$(basename "$f"); [ -f "$FONTS/$n" ] || cp "$f" "$FONTS/$n"
+  printf '"%s (SKJ Wine)"="%s"\r\n' "${n%.*}" "$n" >> "$REG"
+done
+wine regedit /S 'C:\skj-fonts.reg' >/dev/null 2>&1; rm -f "$REG"
 for dll in "$ROOT/lib/prefix/system32"/*.dll; do
   [ -f "$dll" ] || continue
   cp --remove-destination "$dll" "$WINEPREFIX/drive_c/windows/system32/"
