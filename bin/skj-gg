@@ -91,7 +91,7 @@ running || { "$ROOT/bin/skj-gg-hotkeys" >"$LOGDIR/hotkeys.log" 2>&1 & }
 running || { "$ROOT/bin/skj-screencast" --prefix "$WINEPREFIX" >"$LOGDIR/screencast.log" 2>&1 & }
 if [ "${1:-}" = --auto ]; then
   running && exit 0
-  exec wine SteelSeriesGGEZ.exe "${GG_ARGS[@]}" -auto=true >"$LOGDIR/gg.log" 2>&1
+  exec "$ROOT/bin/skj-limit" gg wine SteelSeriesGGEZ.exe "${GG_ARGS[@]}" -auto=true >"$LOGDIR/gg.log" 2>&1
 fi
 
 # ssgg:// links from a browser (GG registers this protocol on Windows)
@@ -102,4 +102,4 @@ if running; then
   # GG is already running in the background: open its window (single-instance UI)
   exec wine SteelSeriesGGClient.exe 'C:\ProgramData\SteelSeries\GG\coreProps.json' "${LINK[@]}" >>"$LOGDIR/gg.log" 2>&1
 fi
-exec wine SteelSeriesGGEZ.exe "${GG_ARGS[@]}" "${DEEPLINK[@]}" >"$LOGDIR/gg.log" 2>&1
+exec "$ROOT/bin/skj-limit" gg wine SteelSeriesGGEZ.exe "${GG_ARGS[@]}" "${DEEPLINK[@]}" >"$LOGDIR/gg.log" 2>&1

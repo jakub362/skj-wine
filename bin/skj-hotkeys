@@ -1,0 +1,157 @@
+#!/usr/bin/env python3
+"""skj-hotkeys - global keyboard shortcuts for Windows programs under SKJ Wine.
+
+Windows recorders (Medal, ...) watch the keyboard with a low-level hook. Under Wine that hook only
+sees keys typed into Wine's own windows, and on Wayland no program may watch the whole keyboard.
+So this helper registers the program's keys with the desktop (xdg-desktop-portal
+"GlobalShortcuts": KDE, GNOME, Hyprland) and, when one is pressed, types the same keys into the
+program's Wine prefix (tools/sendkey), where its hook sees them.
+
+The first time, the desktop asks you to confirm the keys; change them later in its own settings
+(KDE: System Settings > Keyboard > Shortcuts > SKJ Wine).
+
+    skj-hotkeys --prefix DIR --app NAME KEY=description ...    e.g. F8="Medal: save a clip"
+    skj-hotkeys --prefix DIR --medal                            Medal's keys, read from its log
+Runs while the prefix is in use.
+"""
+import argparse, glob, os, re, subprocess, sys, time
+
+ROOT = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
+PORTAL = ("org.freedesktop.portal.Desktop", "/org/freedesktop/portal/desktop")
+MEDAL_DEFAULTS = {"F8": "Medal: save a clip", "ALT+F7": "Medal: start/stop a segment", "F7": "Medal: screenshot"}
+MEDAL_NAMES = {"clip": "Medal: save a clip", "segment_toggle": "Medal: start/stop a segment", "bookmark": "Medal: bookmark",
+               "switch_game": "Medal: switch game", "screenshot": "Medal: screenshot"}
+
+
+def log(text):
+    print("[skj-hotkeys] " + text, flush=True)
+
+
+def medal_keys(prefix):
+    """Medal's current hotkeys, from the newest 'Hotkeys changed ... --> [...]' line of its log."""
+    logs = sorted(glob.glob(os.path.join(prefix, "drive_c/users/*/Documents/Medal/MedalLog*.txt")))
+    keys = {}
+    for path in reversed(logs):
+        try:
+            lines = [l for l in open(path, encoding="utf-8", errors="replace") if "Hotkeys changed" in l]
+        except OSError:
+            continue
+        if not lines:
+            continue
+        for name, combo in re.findall(r"(\w+)(?:;[^:]*)?: short_press of keyboard:([A-Z0-9 +]+?)(?=,|\])", lines[-1].split("-->")[-1]):
+            combo = combo.replace(" ", "")
+            keys.setdefault(combo, MEDAL_NAMES.get(name, "Medal: " + name))
+        break
+    return keys or dict(MEDAL_DEFAULTS)
+
+
+def portal_key(combo):
+    """ALT+F7 -> the portal's spelling, ALT+F7 (modifiers upper case, key as is)."""
+    parts = combo.split("+")
+    mods = [p.upper() for p in parts[:-1]]
+    return "+".join([{"CTRL": "CTRL", "CONTROL": "CTRL", "ALT": "ALT", "SHIFT": "SHIFT", "WIN": "LOGO"}.get(m, m) for m in mods] + [parts[-1]])
+
+
+def prefix_in_use(prefix):
+    try:
+        st = os.stat(prefix)
+    except OSError:
+        return False
+    name = "server-%x-%x" % (st.st_dev, st.st_ino)
+    return any(os.path.exists(os.path.join(base, name, "socket"))
+               for base in (os.path.join(os.environ.get("XDG_RUNTIME_DIR", ""), "wine"), "/tmp/.wine-%d" % os.getuid()))
+
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--prefix", required=True)
+    parser.add_argument("--app", default="app")
+    parser.add_argument("--medal", action="store_true")
+    parser.add_argument("keys", nargs="*", help='KEY=description, e.g. F8="save a clip"')
+    args = parser.parse_args()
+
+    keys = medal_keys(args.prefix) if args.medal else {}
+    app = "medal" if args.medal else re.sub(r"[^a-z0-9]+", "-", args.app.lower())
+    for item in args.keys:
+        combo, _, text = item.partition("=")
+        keys[combo.upper()] = text or combo
+    if not keys:
+        log("no keys")
+        return 1
+
+    from gi.repository import Gio, GLib
+    v = GLib.Variant
+    bus = Gio.bus_get_sync(Gio.BusType.SESSION, None)
+    try:
+        bus.call_sync(PORTAL[0], PORTAL[1], "org.freedesktop.host.portal.Registry", "Register",
+                      v("(sa{sv})", ("skj-wine", {})), None, Gio.DBusCallFlags.NONE, 5000, None)
+    except GLib.Error:
+        pass
+    sender = bus.get_unique_name()[1:].replace(".", "_")
+    count = [0]
+
+    def request(method, make_args, timeout):
+        count[0] += 1
+        token = "skjhk%d_%d" % (os.getpid(), count[0])
+        path = "/org/freedesktop/portal/desktop/request/%s/%s" % (sender, token)
+        answer = []
+        sub = bus.signal_subscribe(PORTAL[0], "org.freedesktop.portal.Request", "Response", path, None,
+                                   Gio.DBusSignalFlags.NONE, lambda *a: answer.append(a[5].unpack()))
+        try:
+            bus.call_sync(PORTAL[0], PORTAL[1], "org.freedesktop.portal.GlobalShortcuts", method, make_args(token),
+                          None, Gio.DBusCallFlags.NONE, 10000, None)
+            end = time.monotonic() + timeout
+            context = GLib.MainContext.default()
+            while not answer and time.monotonic() < end:
+                if not context.iteration(False):
+                    time.sleep(0.02)
+        finally:
+            bus.signal_unsubscribe(sub)
+        if not answer or answer[0][0]:
+            raise RuntimeError("%s: %s" % (method, "refused" if answer else "no answer from the desktop"))
+        return answer[0][1]
+
+    ids = {"%s-%s" % (app, re.sub(r"[^a-z0-9]+", "-", combo.lower())): combo for combo in keys}
+    try:
+        session = request("CreateSession", lambda t: v("(a{sv})", ({
+            "handle_token": v("s", t), "session_handle_token": v("s", "skjhk%d" % os.getpid())},)), 10)["session_handle"]
+        bound = request("BindShortcuts", lambda t: v("(oa(sa{sv})sa{sv})", (
+            session,
+            [(sid, {"description": v("s", keys[combo]), "preferred_trigger": v("s", portal_key(combo))}) for sid, combo in ids.items()],
+            "", {"handle_token": v("s", t)})), 300)
+    except (RuntimeError, GLib.Error) as e:
+        log("the desktop didn't take the shortcuts: %s" % e)
+        return 1
+    for name, props in bound.get("shortcuts", []):
+        log("%s = %s" % (props.get("description", name), props.get("trigger_description", "no key")))
+
+    env = dict(os.environ, WINEPREFIX=args.prefix, WINEDEBUG="-all")
+    sendkey = os.path.join(ROOT, "tools/sendkey/sendkey.exe")
+
+    def activated(connection, sender_name, path, interface, signal, params):
+        handle, sid, _timestamp, _options = params.unpack()
+        if handle != session or sid not in ids:
+            return
+        # the desktop keeps the keys to itself: let them go before Wine types them for the program
+        subprocess.Popen(["wine", sendkey, ids[sid]], env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        log("pressed %s" % ids[sid])
+
+    bus.signal_subscribe(PORTAL[0], "org.freedesktop.portal.GlobalShortcuts", "Activated", PORTAL[1], None,
+                         Gio.DBusSignalFlags.NONE, activated)
+    loop = GLib.MainLoop()
+    state = {"seen": False, "start": time.monotonic()}
+
+    def tick():
+        used = prefix_in_use(args.prefix)
+        state["seen"] = state["seen"] or used
+        if (state["seen"] and not used) or (not state["seen"] and time.monotonic() - state["start"] > 900):
+            loop.quit()
+            return False
+        return True
+    GLib.timeout_add_seconds(5, tick)
+    loop.run()
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

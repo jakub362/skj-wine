@@ -30,11 +30,15 @@ case "$1" in
   --winecfg) exec wine winecfg >>"$LOG" 2>&1 ;;
 esac
 EXE="$(readlink -f "$1")"; shift
+# Medal: its hotkeys as desktop-wide shortcuts (bin/skj-hotkeys)
+case "${EXE,,}" in */medal/current/medal.exe|*/medal/medal.exe)
+  pgrep -f "skj-hotkeys --prefix $WINEPREFIX " >/dev/null || { "$ROOT/bin/skj-hotkeys" --prefix "$WINEPREFIX" --medal >>"$LOG" 2>&1 & } ;;
+esac
 # screen recorders: hands the screen over when a program asks (see bin/skj-screencast); it ends with the prefix
 "$ROOT/bin/skj-screencast" --prefix "$WINEPREFIX" >>"$LOG" 2>&1 &
 [ -f "$EXE" ] || { echo "no such file: $EXE" >&2; exit 1; }
 cd "$(dirname "$EXE")" || exit 1
 case "${EXE,,}" in
-  *.msi) exec wine msiexec /i "$EXE" "$@" >>"$LOG" 2>&1 ;;
-  *)     exec wine "$EXE" "$@" >>"$LOG" 2>&1 ;;
+  *.msi) exec "$ROOT/bin/skj-limit" "$NAME" wine msiexec /i "$EXE" "$@" >>"$LOG" 2>&1 ;;
+  *)     exec "$ROOT/bin/skj-limit" "$NAME" wine "$EXE" "$@" >>"$LOG" 2>&1 ;;
 esac

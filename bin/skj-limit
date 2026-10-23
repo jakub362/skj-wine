@@ -1,0 +1,19 @@
+#!/usr/bin/env bash
+# skj-limit NAME COMMAND... - run a Windows program with a memory ceiling.
+#
+# A Windows program that leaks under Wine can eat all memory; Linux then kills whatever it picks
+# (browsers, the desktop's apps) before the culprit. Run in its own systemd scope with MemoryMax,
+# only that program is killed when it goes over. Default: half of the RAM; SKJ_MEMORY_MAX=12G
+# sets another limit, SKJ_MEMORY_MAX=off none.
+name="$1"; shift
+limit="${SKJ_MEMORY_MAX:-}"
+if [ -z "$limit" ]; then
+  kb=$(awk '/^MemTotal:/{print $2}' /proc/meminfo 2>/dev/null)
+  [ -n "$kb" ] && limit="$((kb / 2))K"
+fi
+if [ "$limit" != off ] && [ -n "$limit" ] && command -v systemd-run >/dev/null &&
+   systemd-run --user --scope -q -p MemoryMax=1G true 2>/dev/null; then
+  exec systemd-run --user --scope -q --unit="skj-${name//[^A-Za-z0-9_-]/-}-$$" \
+    -p MemoryMax="$limit" -p MemorySwapMax=512M -- "$@"
+fi
+exec "$@"
